@@ -1,0 +1,237 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
+using StbImageSharp;
+
+namespace Cummy.Compositor;
+
+public enum OverlayOrigin { Shipped, FullBody, FullFace, Part }
+
+/// What a custom image belongs to: one part's override, or one of the two full images (the full-body image in the
+/// Bibo layout, split into body parts; the full-face image in the face-paint layout, split into facial parts).
+public readonly record struct OverlayTarget(BodyPart? Part, bool Face = false)
+{
+    public static readonly OverlayTarget FullBody = new(null);
+    public static readonly OverlayTarget FullFace = new(null, true);
+
+    public static OverlayTarget Of(BodyPart part) => new(part);
+
+    /// The full image a part is split from when it has no override.
+    public static OverlayTarget FullFor(BodyPart part) => part.IsFacial() ? FullFace : FullBody;
+
+    public string Key => Part?.Id() ?? (Face ? "face" : "full");
+
+    public string DisplayName => Part?.DisplayName() ?? (Face ? "Full face" : "Full body");
+}
+
+/// Where one part's art comes from for a composite. <see cref="Normal"/> null = the part adds no relief.
+/// <see cref="Stamp"/> identifies the files' content ("shipped" for the plugin's own art), so cached crops and
+/// published outputs follow the art.
+public sealed record OverlaySource(OverlayOrigin Origin, string Diffuse, string? Normal, string Stamp);
+
+public enum CustomState { None, Custom, Missing }
+
+/// The wearer's own overlay art: a full-body and a full-face image, each split into its parts by a shipped region map,
+/// and per-part overrides. Picks a part's source (override → full image split → shipped), validates and stores
+/// imported images in the config folder, and resets them. Framework thread only, except the import work it starts itself.
+public sealed class OverlaySources
+{
+    public const int MaxSide = 8192;
+    public const string DiffuseFile = "diffuse.png";
+    public const string NormalFile = "normal.png";
+    public static readonly string[] Extensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp"];
+
+    private readonly Configuration config;
+    private readonly string assetsDir;
+    private readonly string customDir;
+    private readonly HashSet<string> busy = new();
+    private readonly Dictionary<string, string> errors = new();
+
+    /// Raised after a source is imported or reset.
+    public event Action<OverlayTarget>? Changed;
+
+    public OverlaySources(Configuration config)
+    {
+        this.config = config;
+        assetsDir = Path.Combine(Plugin.PluginInterface.AssemblyLocation.Directory!.FullName, "Assets");
+        customDir = Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "overlays");
+    }
+
+    /// Which part each pixel of the Bibo atlas belongs to (tools/build-regions.py).
+    public string RegionMapPath => Path.Combine(assetsDir, "regions.png");
+
+    /// Which facial part each pixel of the face-paint layout belongs to (tools/build-face-assets.py).
+    public string FaceRegionMapPath => Path.Combine(assetsDir, "face-regions.png");
+
+    private string Dir(OverlayTarget target) => Path.Combine(customDir, target.Key);
+
+    public CustomOverlayRecord? Record(OverlayTarget target)
+        => target.Part is { } p ? config.CustomOverlays.GetValueOrDefault(p.Id())
+         : target.Face ? config.CustomFullFace : config.CustomFullBody;
+
+    public CustomState State(OverlayTarget part)
+    {
+        if (Record(part) is not { HasDiffuse: true }) return CustomState.None;
+        return Stored(part, "diffuse") != null ? CustomState.Custom : CustomState.Missing;
+    }
+
+    public bool HasNormal(OverlayTarget part)
+        => Record(part) is { HasNormal: true } && Stored(part, "normal") != null;
+
+    public bool IsBusy(OverlayTarget part) => busy.Contains(part.Key);
+
+    public string? Error(OverlayTarget part) => errors.GetValueOrDefault(part.Key);
+
+    /// The art <paramref name="part"/> uses right now.
+    public OverlaySource Resolve(BodyPart part)
+    {
+        if (Custom(OverlayTarget.Of(part)) is { } own) return own;
+        // Body parts split the full-body image (Bibo layout), facial parts the full-face image (face-paint layout).
+        if (Custom(OverlayTarget.FullFor(part)) is { } full) return full;
+        var dir = Path.Combine(assetsDir, part.Id());
+        return new OverlaySource(OverlayOrigin.Shipped, Path.Combine(dir, DiffuseFile), Path.Combine(dir, NormalFile), "shipped");
+    }
+
+    private OverlaySource? Custom(OverlayTarget part)
+    {
+        if (Record(part) is not { HasDiffuse: true } record || Stored(part, "diffuse") is not { } diffuse) return null;
+        // Colour and relief always come from the same source: no normal here means no relief, never another one's.
+        var normal = record.HasNormal ? Stored(part, "normal") : null;
+        var stamp = $"{part.Key}:{Stamp(diffuse)}";
+        if (normal != null) stamp += $"+{Stamp(normal)}";
+        if (part.Part != null)
+            return new OverlaySource(OverlayOrigin.Part, diffuse, normal, stamp);
+        // A full image's split depends on its region map too.
+        stamp += $"+regions:{Stamp(part.Face ? FaceRegionMapPath : RegionMapPath)}";
+        return new OverlaySource(part.Face ? OverlayOrigin.FullFace : OverlayOrigin.FullBody, diffuse, normal, stamp);
+    }
+
+    private static string Stamp(string path)
+        => File.Exists(path) ? $"{new FileInfo(path).Length}.{File.GetLastWriteTimeUtc(path).Ticks}" : "none";
+
+    private string? Stored(OverlayTarget part, string kind)
+    {
+        var dir = Dir(part);
+        if (!Directory.Exists(dir)) return null;
+        return Directory.EnumerateFiles(dir, kind + ".*")
+                        .FirstOrDefault(f => Extensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+    }
+
+    /// Validates and stores <paramref name="sourcePath"/> as <paramref name="part"/>'s colour or normal image in the
+    /// background; on success updates the config and raises <see cref="Changed"/>, otherwise records a reason.
+    public void Import(OverlayTarget part, bool normal, string sourcePath)
+    {
+        var key = part.Key;
+        if (!busy.Add(key)) return;
+        errors.Remove(key);
+
+        Task.Run(() => Store(part, normal, sourcePath)).ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() =>
+        {
+            busy.Remove(key);
+            var error = t.IsFaulted ? $"Couldn't import that image: {t.Exception!.InnerException?.Message}" : t.Result;
+            var what = $"{part.DisplayName} {(normal ? "normal map" : "image")}";
+            if (error != null)
+            {
+                errors[key] = error;
+                Notifier.Error($"{what} not changed: {error}");
+                return;
+            }
+
+            CustomOverlayRecord record;
+            if (part.Part is { } p)
+            {
+                if (!config.CustomOverlays.TryGetValue(p.Id(), out record!))
+                    config.CustomOverlays[p.Id()] = record = new CustomOverlayRecord();
+            }
+            else
+            {
+                record = part.Face ? config.CustomFullFace : config.CustomFullBody;
+            }
+            if (normal)
+            {
+                record.HasNormal = true;
+            }
+            else
+            {
+                record.HasDiffuse = true;
+                record.OriginalName = Path.GetFileName(sourcePath);
+            }
+            record.ImportedUtc = DateTime.UtcNow;
+            config.Save();
+            Notifier.Info($"Custom {what.ToLowerInvariant()} set.");
+            Changed?.Invoke(part);
+        }));
+    }
+
+    /// Null on success, else a short reason for the wearer.
+    private string? Store(OverlayTarget part, bool normal, string source)
+    {
+        var ext = Path.GetExtension(source).ToLowerInvariant();
+        if (!Extensions.Contains(ext)) return "choose a PNG, JPEG, TGA or BMP image.";
+
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(source);
+        }
+        catch (Exception ex)
+        {
+            return $"couldn't read {Path.GetFileName(source)} ({ex.Message}).";
+        }
+
+        if (ImageInfo.FromStream(new MemoryStream(bytes)) is not { } info) return "that file isn't an image Cummy can read.";
+        if (info.Width > MaxSide || info.Height > MaxSide)
+            return $"it is {info.Width}×{info.Height}; the limit is {MaxSide}×{MaxSide}.";
+
+        ImageResult image;
+        try
+        {
+            image = ImageResult.FromMemory(bytes, ColorComponents.RedGreenBlueAlpha);
+        }
+        catch (Exception)
+        {
+            return "that file isn't an image Cummy can read.";
+        }
+        if (!normal && !HasCoverage(image.Data))
+            return "it has no visible coverage (its alpha is zero everywhere).";
+
+        var dir = Dir(part);
+        Directory.CreateDirectory(dir);
+        var kind = normal ? "normal" : "diffuse";
+        var temp = Path.Combine(dir, $".import-{kind}{ext}");
+        File.WriteAllBytes(temp, bytes);
+        foreach (var old in Directory.EnumerateFiles(dir, kind + ".*").ToList())
+            File.Delete(old);
+        File.Move(temp, Path.Combine(dir, kind + ext), overwrite: true);
+        return null;
+    }
+
+    private static bool HasCoverage(byte[] rgba)
+    {
+        for (int i = 3; i < rgba.Length; i += 4)
+            if (rgba[i] != 0) return true;
+        return false;
+    }
+
+    /// Back to the next source in line: deletes the stored images and forgets the record.
+    public void Reset(OverlayTarget part)
+    {
+        var dir = Dir(part);
+        try
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, $"Couldn't delete {dir}");
+        }
+        if (part.Part is { } p) config.CustomOverlays.Remove(p.Id());
+        else if (part.Face) config.CustomFullFace = new CustomOverlayRecord();
+        else config.CustomFullBody = new CustomOverlayRecord();
+        errors.Remove(part.Key);
+        config.Save();
+        Changed?.Invoke(part);
+    }
+}

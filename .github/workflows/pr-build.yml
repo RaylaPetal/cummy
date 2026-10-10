@@ -1,0 +1,40 @@
+name: PR Builder for Cummy
+
+on:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+
+  build:
+    runs-on: windows-2022
+
+    env:
+      Solution_Name: Cummy
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        submodules: recursive
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: 10.0.x
+
+    - name: Download Dalamud
+      run: |
+        Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile latest.zip
+        Expand-Archive -Force latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev"
+
+    - name: Build with dotnet
+      run: dotnet build Cummy.slnx --configuration Release
+
+    - name: Store artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Cummy
+        path: .\Cummy\bin\x64\Release\Cummy\*
+        if-no-files-found: error
+        retention-days: 1

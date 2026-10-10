@@ -1,0 +1,56 @@
+# AI agent / tooling state
+.cline/
+.clinerules/
+.claude/
+.agents/
+openspec/
+
+# Source art (1.5 GB of PSDs, Substance projects, packs). The plugin ships the
+# PNGs that tools/build-assets.py writes to Cummy/Assets, which stay tracked.
+Textures/
+
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm64/
+*.nupkg
+*.snupkg
+TestResults/
+*.binlog
+
+# DalamudPackager output
+latest.zip
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+*.DotSettings.user
+.fleet/
+
+# Python (tools/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*~
