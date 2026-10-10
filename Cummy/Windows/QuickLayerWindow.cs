@@ -53,7 +53,7 @@ public sealed class QuickLayerWindow : ThemedWindow
         base.PreDraw();
     }
 
-    public override void Draw()
+    protected override void DrawContents()
     {
         var size = new Vector2(36 * ImGuiHelpers.GlobalScale);
         bool clicked;

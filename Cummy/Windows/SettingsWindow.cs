@@ -50,7 +50,7 @@ public sealed class SettingsWindow : ThemedWindow
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(380, 300), MaximumSize = new Vector2(1000, 1400) };
     }
 
-    public override void Draw()
+    protected override void DrawContents()
     {
         fileDialog.Draw();
 

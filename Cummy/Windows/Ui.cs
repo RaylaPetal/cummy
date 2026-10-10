@@ -103,11 +103,19 @@ internal static class Ui
             .Push(ImGuiStyleVar.GrabRounding, 4f * scale)
             .Push(ImGuiStyleVar.TabRounding, 6f * scale)
             .Push(ImGuiStyleVar.ScrollbarRounding, 6f * scale)
-            .Push(ImGuiStyleVar.WindowPadding, new Vector2(10f, 10f) * scale)
-            .Push(ImGuiStyleVar.FramePadding, new Vector2(8f, 5f) * scale)
-            .Push(ImGuiStyleVar.ItemSpacing, new Vector2(6f, 6f) * scale);
+            .Push(ImGuiStyleVar.WindowPadding, new Vector2(10f, 10f) * scale);
 
         return new Scope(style, colors);
+    }
+
+    /// Padding and spacing for a window's contents. Pushed only around Draw, never around the title bar: Dalamud
+    /// places custom title-bar buttons (the cog) assuming the default FramePadding, so a wider one there shifts their
+    /// click areas onto the close button.
+    public static IDisposable Content()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        return ImRaii.PushStyle(ImGuiStyleVar.FramePadding, new Vector2(8f, 5f) * scale)
+            .Push(ImGuiStyleVar.ItemSpacing, new Vector2(6f, 6f) * scale);
     }
 
     private sealed class Scope(IDisposable style, IDisposable colors) : IDisposable
@@ -297,7 +305,8 @@ internal static class Ui
     }
 }
 
-/// A Cummy window: draws with <see cref="Ui.Theme"/>, pushed before the window begins and popped after it ends.
+/// A Cummy window: draws with <see cref="Ui.Theme"/>, pushed before the window begins and popped after it ends, and
+/// draws its contents (<see cref="DrawContents"/>) with <see cref="Ui.Content"/>.
 public abstract class ThemedWindow : Window
 {
     private IDisposable? theme;
@@ -315,4 +324,12 @@ public abstract class ThemedWindow : Window
         theme?.Dispose();
         theme = null;
     }
+
+    public sealed override void Draw()
+    {
+        using var content = Ui.Content();
+        DrawContents();
+    }
+
+    protected abstract void DrawContents();
 }

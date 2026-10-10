@@ -25,7 +25,7 @@ public sealed class LayerPickerWindow : ThemedWindow
         IsOpen = true;
     }
 
-    public override void Draw()
+    protected override void DrawContents()
     {
         if (peer is null || pairing.FindPeer(peer.Name, peer.World) is not { } current)
         {

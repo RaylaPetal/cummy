@@ -45,7 +45,7 @@ public sealed class MainWindow : ThemedWindow
         });
     }
 
-    public override void Draw()
+    protected override void DrawContents()
     {
         if (layers.Current is null)
         {

@@ -22,7 +22,7 @@ public sealed class InviteWindow : ThemedWindow
         pairing.InviteReceived += () => IsOpen = true;
     }
 
-    public override void Draw()
+    protected override void DrawContents()
     {
         var invites = pairing.PendingInvites;
         if (invites.Count == 0)
