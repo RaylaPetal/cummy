@@ -9,7 +9,7 @@ using Dalamud.Interface.Windowing;
 
 namespace Cummy.Windows;
 
-public enum PillTone { Neutral, Green, Amber, Accent }
+public enum PillTone { Neutral, Fresh, Drying, Accent }
 
 public enum CardStyle { Normal, Selected, Banner, MutedBanner }
 
@@ -19,28 +19,29 @@ internal static class Ui
 {
     // ── Palette ──────────────────────────────────────────────────────────────
 
-    public static readonly Vector4 WindowBg = Hex(0x1C1622);
-    public static readonly Vector4 CardBg = Hex(0x2A2131);
-    public static readonly Vector4 CardHover = Hex(0x352A3E);
-    public static readonly Vector4 FrameBg = Hex(0x241C2A);
-    public static readonly Vector4 Border = Hex(0x3D3046);
-    public static readonly Vector4 Accent = Hex(0xED8CBF);
-    public static readonly Vector4 AccentStrong = Hex(0xE0558F);
-    public static readonly Vector4 MutedText = Hex(0x9A8FA3);
+    // Cool dark slate with a pearly, milky-white accent: glossy cream highlights on a dark, wet-looking base.
+    public static readonly Vector4 WindowBg = Hex(0x14171C);
+    public static readonly Vector4 CardBg = Hex(0x1F242B);
+    public static readonly Vector4 CardHover = Hex(0x29303A);
+    public static readonly Vector4 FrameBg = Hex(0x1A1E24);
+    public static readonly Vector4 Border = Hex(0x323944);
+    public static readonly Vector4 Accent = Hex(0xF4F0E6);
+    public static readonly Vector4 AccentStrong = Hex(0xE4DDCB);
+    public static readonly Vector4 MutedText = Hex(0x8C95A3);
     public static readonly Vector4 Warning = ImGuiColors.DalamudOrange;
 
-    private static readonly Vector4 TitleBg = Hex(0x17121C);
-    private static readonly Vector4 TitleBgActive = Hex(0x2A1F31);
-    private static readonly Vector4 PopupBg = Hex(0x1F1826);
-    private static readonly Vector4 ButtonBg = Hex(0x2E2436);
-    private static readonly Vector4 ButtonHover = Hex(0x3E2F48);
-    private static readonly Vector4 HeaderBg = Hex(0x3A2D43);
-    private static readonly Vector4 HeaderHover = Hex(0x463650);
+    private static readonly Vector4 TitleBg = Hex(0x0F1215);
+    private static readonly Vector4 TitleBgActive = Hex(0x1D2229);
+    private static readonly Vector4 PopupBg = Hex(0x171B20);
+    private static readonly Vector4 ButtonBg = Hex(0x2A3039);
+    private static readonly Vector4 ButtonHover = Hex(0x37404B);
+    private static readonly Vector4 HeaderBg = Hex(0x2F3640);
+    private static readonly Vector4 HeaderHover = Hex(0x3A434F);
 
-    private static readonly (Vector4 Bg, Vector4 Text) PillNeutral = (Hex(0x3A2D43), Hex(0xD9CFE0));
-    private static readonly (Vector4 Bg, Vector4 Text) PillGreen = (Hex(0x2E4A3A), Hex(0x7FD6A0));
-    private static readonly (Vector4 Bg, Vector4 Text) PillAmber = (Hex(0x4A3A22), Hex(0xE8B36A));
-    private static readonly (Vector4 Bg, Vector4 Text) PillAccent = (Hex(0x4A2338), Accent);
+    private static readonly (Vector4 Bg, Vector4 Text) PillNeutral = (Hex(0x2F3640), Hex(0xD3D9E1));
+    private static readonly (Vector4 Bg, Vector4 Text) PillFresh = (Hex(0xF4F0E6, 0.16f), Hex(0xF7F4EC));
+    private static readonly (Vector4 Bg, Vector4 Text) PillDrying = (Hex(0x4A3F28), Hex(0xE6C77E));
+    private static readonly (Vector4 Bg, Vector4 Text) PillAccent = (Hex(0xF4F0E6, 0.12f), Accent);
 
     private static Vector4 Hex(uint rgb, float alpha = 1f)
         => new(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, alpha);
@@ -65,10 +66,10 @@ internal static class Ui
             .Push(ImGuiCol.FrameBgActive, HeaderBg)
             .Push(ImGuiCol.Button, ButtonBg)
             .Push(ImGuiCol.ButtonHovered, ButtonHover)
-            .Push(ImGuiCol.ButtonActive, WithAlpha(AccentStrong, 0.7f))
+            .Push(ImGuiCol.ButtonActive, WithAlpha(AccentStrong, 0.35f))
             .Push(ImGuiCol.Header, HeaderBg)
             .Push(ImGuiCol.HeaderHovered, HeaderHover)
-            .Push(ImGuiCol.HeaderActive, WithAlpha(AccentStrong, 0.6f))
+            .Push(ImGuiCol.HeaderActive, WithAlpha(AccentStrong, 0.3f))
             .Push(ImGuiCol.CheckMark, Accent)
             .Push(ImGuiCol.SliderGrab, Accent)
             .Push(ImGuiCol.SliderGrabActive, AccentStrong)
@@ -189,8 +190,8 @@ internal static class Ui
     {
         var (bg, fg) = tone switch
         {
-            PillTone.Green => PillGreen,
-            PillTone.Amber => PillAmber,
+            PillTone.Fresh => PillFresh,
+            PillTone.Drying => PillDrying,
             PillTone.Accent => PillAccent,
             _ => PillNeutral,
         };
@@ -241,7 +242,7 @@ internal static class Ui
         var (bg, border) = style switch
         {
             CardStyle.Selected => (hovered ? CardHover : CardBg, (Vector4?)Accent),
-            CardStyle.Banner => (WithAlpha(AccentStrong, 0.18f), (Vector4?)WithAlpha(Accent, 0.8f)),
+            CardStyle.Banner => (WithAlpha(AccentStrong, 0.10f), (Vector4?)WithAlpha(Accent, 0.7f)),
             CardStyle.MutedBanner => (FrameBg, (Vector4?)Border),
             _ => (hovered ? CardHover : CardBg, null),
         };

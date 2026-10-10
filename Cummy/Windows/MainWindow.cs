@@ -173,13 +173,13 @@ public sealed class MainWindow : ThemedWindow
     /// "12m ago", plus the time left before it dries when drying off is on (amber in its last 5 minutes).
     private (string Text, PillTone Tone)[] Pills(DateTime layeredAtUtc)
     {
-        var ago = ($"{Ui.Span(DateTime.UtcNow - layeredAtUtc)} ago", PillTone.Green);
+        var ago = ($"{Ui.Span(DateTime.UtcNow - layeredAtUtc)} ago", PillTone.Fresh);
         if (!configuration.DryOffEnabled) return [ago];
         var dryAt = layeredAtUtc + TimeSpan.FromMinutes(Math.Max(Configuration.MinDryMinutes, configuration.DryOffMinutes));
         var left = dryAt - DateTime.UtcNow;
         var dry = left > TimeSpan.Zero
-            ? ($"dries in {Ui.Span(left)}", left < TimeSpan.FromMinutes(5) ? PillTone.Amber : PillTone.Neutral)
-            : ("drying", PillTone.Amber);
+            ? ($"dries in {Ui.Span(left)}", left < TimeSpan.FromMinutes(5) ? PillTone.Drying : PillTone.Neutral)
+            : ("drying", PillTone.Drying);
         return [ago, dry];
     }
 
