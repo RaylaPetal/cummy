@@ -7,7 +7,7 @@
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
-    "Punchline": "Second Life INM-style cum layering for your paired partners.",
+    "Punchline": "Cum layering system for your paired partners.",
     "RepoUrl": "https://github.com/RaylaPetal/cummy",
     "Tags": [
       "nsfw",
