@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.0/Cummy-1.1.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.0/Cummy-1.1.0.0.zip",
-    "Changelog": "- New look: every Cummy window now uses a dark slate theme with pearly, milky-white highlights instead of pink.",
+    "Changelog": "- New look: every Cummy window now uses a dark slate theme with pearly, milky-white highlights.\n- Shorter plugin description.",
     "LastUpdate": "1791670458"
   }
 ]

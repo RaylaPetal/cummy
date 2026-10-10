@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.1.0.0</Version>
+    <Version>1.1.0.1</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>Cummy</Name>
-    <Punchline>Second Life INM-style cum layering for your paired partners.</Punchline>
+    <Punchline>Cum layering system for your paired partners.</Punchline>
     <Description>Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.
 Requires Penumbra. 18+ content.</Description>
     <Tags>nsfw;penumbra;overlay;bibo</Tags>
