@@ -1,0 +1,25 @@
+[
+  {
+    "Author": "Rayla Petal",
+    "Name": "Cummy",
+    "InternalName": "Cummy",
+    "AssemblyVersion": "1.0.0.0",
+    "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Punchline": "Second Life INM-style cum layering for your paired partners.",
+    "RepoUrl": "https://github.com/RaylaPetal/cummy",
+    "Tags": [
+      "nsfw",
+      "penumbra",
+      "overlay",
+      "bibo"
+    ],
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v1.0.0.0/Cummy-1.0.0.0.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v1.0.0.0/Cummy-1.0.0.0.zip",
+    "Changelog": "- First release: pair over tells, layer partners' body and face parts, clean, dry off and wash off.\n- Optional moodle when you're layered (uses your own Moodles moodle and its VFX).\n- Refreshed look for every window.",
+    "LastUpdate": "0"
+  }
+]

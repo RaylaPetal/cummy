@@ -10,7 +10,19 @@ A Dalamud plugin for FINAL FANTASY XIV that brings Second Life INM-style cum lay
 - `/cummy` opens the main window: your layers (clean one part or everything) and your partners (layer, or hold Ctrl to unpair). `/cummy clean` cleans everything, `/cummy clean chest` one part.
 - Block body parts you don't want layered in `/cummy settings`, along with drying off and custom overlays.
 
-Requirements: Penumbra, and a **Bibo** body (other bodies are refused for now).
+Requirements: Penumbra, and a **Bibo** body (other bodies are refused for now). Optional: Moodles, to have one of your moodles applied when you're layered.
+
+## Installing
+
+In game, open `/xlsettings` → *Experimental*, add this URL under *Custom Plugin Repositories*, save, then install **Cummy** from `/xlplugins`:
+
+```
+https://raw.githubusercontent.com/RaylaPetal/cummy/main/repo.json
+```
+
+## Releasing
+
+Bump `<Version>` in `Cummy/Cummy.csproj` (4 parts, e.g. `1.0.1.0`), commit it to `main`, then push a matching tag (`v1.0.1.0`). The release workflow builds it, publishes a GitHub release with `Cummy-<version>.zip`, points `repo.json` on `main` at it and prunes old releases. A tag ending in `-testing` publishes a testing build only.
 
 ## How it talks to your partner
 
