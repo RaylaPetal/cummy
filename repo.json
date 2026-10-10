@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "1.1.0.1",
+    "AssemblyVersion": "1.1.0.2",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.1/Cummy-1.1.0.1.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.1/Cummy-1.1.0.1.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.2/Cummy-1.1.0.2.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v1.1.0.2/Cummy-1.1.0.2.zip",
     "Changelog": "- Fixed the settings button in the main window's title bar: clicking its right half no longer hits the close button.",
-    "LastUpdate": "1791670855"
+    "LastUpdate": "1791671086"
   }
 ]
