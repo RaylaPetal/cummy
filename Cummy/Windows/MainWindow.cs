@@ -64,7 +64,8 @@ public sealed class MainWindow : ThemedWindow
         DrawPartners();
     }
 
-    /// Your state at a glance: highlighted with Clean everything while layered, muted while clean.
+    /// Your state at a glance: highlighted with Clean everything (or how you'll get clean, while manual cleaning is
+    /// off) while layered, muted while clean.
     private void DrawBanner()
     {
         var count = BodyParts.DisplayOrder.Count(layers.IsLayered);
@@ -87,6 +88,13 @@ public sealed class MainWindow : ThemedWindow
             ImGui.TextColored(Ui.Accent, "LAYERED");
             ImGui.TextUnformatted(count == 1 ? "1 part" : $"{count} parts");
             ImGui.EndGroup();
+
+            // With drying off or washing off on, only those (and a partner's lick) clean you: say how instead.
+            if (configuration.HowYouGetClean() is { } how)
+            {
+                Ui.MutedWrapped(how);
+                return;
+            }
 
             var label = "Clean everything";
             Ui.AlignRight(Ui.IconButtonWithTextWidth(FontAwesomeIcon.Broom, label));
@@ -155,16 +163,21 @@ public sealed class MainWindow : ThemedWindow
                 if (part.StageCount() > 1)
                     pills = [($"stage {layers.Stage(part)}/{part.StageCount()}", PillTone.Accent), .. pills];
                 var spacing = ImGui.GetStyle().ItemSpacing.X;
-                var width = Ui.IconButtonWidth(FontAwesomeIcon.Broom) + pills.Sum(p => Ui.PillWidth(p.Text) + spacing);
+                var canClean = configuration.ManualCleanAllowed;
+                var width = pills.Sum(p => Ui.PillWidth(p.Text) + spacing)
+                          + (canClean ? Ui.IconButtonWidth(FontAwesomeIcon.Broom) : -spacing);
                 Ui.AlignRight(width);
-                foreach (var (text, tone) in pills)
+                for (var i = 0; i < pills.Length; i++)
                 {
-                    Ui.Pill(text, tone);
-                    ImGui.SameLine();
+                    Ui.Pill(pills[i].Text, pills[i].Tone);
+                    if (canClean || i < pills.Length - 1) ImGui.SameLine();
                 }
-                if (ImGuiComponents.IconButton($"clean{part.Id()}", FontAwesomeIcon.Broom))
-                    Clean(part);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Clean your {part.DisplayName().ToLowerInvariant()}");
+                if (canClean)
+                {
+                    if (ImGuiComponents.IconButton($"clean{part.Id()}", FontAwesomeIcon.Broom))
+                        Clean(part);
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Clean your {part.DisplayName().ToLowerInvariant()}");
+                }
             });
         }
 
@@ -212,10 +225,20 @@ public sealed class MainWindow : ThemedWindow
                 Ui.Muted($"@{peer.World}");
 
                 var spacing = ImGui.GetStyle().ItemSpacing.X;
-                Ui.AlignRight(Ui.IconButtonWidth(FontAwesomeIcon.Tint) + spacing + Ui.IconButtonWidth(FontAwesomeIcon.UserTimes));
+                Ui.AlignRight(Ui.IconButtonWidth(FontAwesomeIcon.Tint) + spacing + Ui.IconButtonWidth(FontAwesomeIcon.GrinTongue)
+                              + spacing + Ui.IconButtonWidth(FontAwesomeIcon.UserTimes));
                 if (ImGuiComponents.IconButton($"layer{peer.Key}", FontAwesomeIcon.Tint))
                     picker.Open(peer);
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Layer {peer.Name}...");
+                ImGui.SameLine();
+                var close = Proximity.Within(peer, Proximity.LickRange);
+                using (ImRaii.Disabled(!close))
+                {
+                    if (ImGuiComponents.IconButton($"lick{peer.Key}", FontAwesomeIcon.GrinTongue))
+                        picker.OpenLick(peer);
+                }
+                if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    ImGui.SetTooltip(close ? $"Lick {peer.Name}..." : $"{peer.Name} is too far away to lick.");
                 ImGui.SameLine();
                 using (ImRaii.Disabled(!ctrl))
                 {
@@ -227,6 +250,6 @@ public sealed class MainWindow : ThemedWindow
             });
         }
 
-        Ui.FooterHint("Droplet to layer - hold Ctrl to unpair", pinToBottom: true);
+        Ui.FooterHint("Droplet to layer - tongue to lick - hold Ctrl to unpair", pinToBottom: true);
     }
 }

@@ -11,11 +11,15 @@ public sealed record IncomingInvite(string Name, string World, string Nonce, int
     public string Key => $"{Name}@{World}";
 }
 
-/// Tell-handshake pairing (invite → accept, unpair either way) and the layer commands that only paired peers may
-/// send. Every outgoing tell here is the direct result of a user click.
+/// Tell-handshake pairing (invite → accept, unpair either way) and the layer and lick commands that only paired peers
+/// may send, from close by (<see cref="Proximity"/>). Every outgoing tell here is the direct result of a user click,
+/// except the `lkd` reply to a partner's lick that cleaned something.
 public sealed class PairingService : IDisposable
 {
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromMinutes(5);
+
+    /// How long a lick waits for the partner's `lkd` before it counts as "nothing to lick there".
+    public static readonly TimeSpan LickTimeout = TimeSpan.FromSeconds(30);
 
     private readonly Configuration config;
     private readonly LayerState layers;
@@ -26,6 +30,9 @@ public sealed class PairingService : IDisposable
     private readonly Dictionary<string, (string Nonce, DateTime ExpiresUtc)> outgoing = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<IncomingInvite> incoming = new();
+
+    /// Licks we sent, by peer key and part, awaiting their `lkd`. Memory only.
+    private readonly Dictionary<(string PeerKey, BodyPart Part), DateTime> pendingLicks = new();
 
     /// Raised when an invite arrives, so the prompt window can open.
     public event Action? InviteReceived;
@@ -114,6 +121,28 @@ public sealed class PairingService : IDisposable
         return true;
     }
 
+    /// Lick <paramref name="part"/> off a partner. What lands on you is decided when their `lkd` arrives
+    /// (<see cref="OnLickConfirmed"/>); without one within <see cref="LickTimeout"/> there was nothing to lick.
+    public bool SendLick(PeerRecord peer, BodyPart part)
+    {
+        if (!sender.SendTell(peer.Name, peer.World, Protocol.Lick(part)))
+        {
+            Notifier.Error("Slow down - too many messages waiting to send.");
+            return false;
+        }
+        var key = (peer.Key, part);
+        var expires = DateTime.UtcNow + LickTimeout;
+        pendingLicks[key] = expires;
+        Plugin.Framework.RunOnTick(() =>
+        {
+            // A later lick of the same part refreshed the entry: its own check reports it.
+            if (!pendingLicks.TryGetValue(key, out var current) || current != expires) return;
+            pendingLicks.Remove(key);
+            Notifier.Info($"Nothing to lick on {peer.Name}'s {part.DisplayName().ToLowerInvariant()}.");
+        }, LickTimeout + TimeSpan.FromSeconds(1));
+        return true;
+    }
+
     /// The wearer changed whether <paramref name="changed"/> is blocked: tell every peer, with each block message
     /// whose bits cover that part (`blk` for every version, `blx` for versions with facial parts, `bly` for current).
     public void BroadcastBlocks(BodyPart changed)
@@ -187,7 +216,32 @@ public sealed class PairingService : IDisposable
                     Plugin.Log.Information($"Ignored a layer from unpaired {name}@{world}.");
                     return;
                 }
+                if (!Proximity.Within(name, world, Proximity.LayerRange + Proximity.ReceiveSlack))
+                {
+                    Plugin.Log.Information($"Ignored a layer from {name}@{world}: not within {Proximity.LayerRange} yalms.");
+                    return;
+                }
                 ApplyLayer(me, name, world, message.Part);
+                break;
+
+            case Verb.Lick:
+                if (me.FindPeer(name, world) is null)
+                {
+                    Plugin.Log.Information($"Ignored a lick from unpaired {name}@{world}.");
+                    return;
+                }
+                if (!Proximity.Within(name, world, Proximity.LickRange + Proximity.ReceiveSlack))
+                {
+                    Plugin.Log.Information($"Ignored a lick from {name}@{world}: not within {Proximity.LickRange} yalms.");
+                    return;
+                }
+                if (BeLicked(name, message.Part) && !sender.SendTell(name, world, Protocol.Licked(message.Part)))
+                    Plugin.Log.Warning($"Couldn't confirm {name}@{world}'s lick of {message.Part}: send queue full.");
+                break;
+
+            case Verb.Licked:
+                if (me.FindPeer(name, world) is not { } licked) return;
+                OnLickConfirmed(me, licked.Key, licked.Name, message.Part);
                 break;
         }
     }
@@ -208,7 +262,85 @@ public sealed class PairingService : IDisposable
             Notifier.Info($"[debug] {message.Part.DisplayName()} is blocked in your settings, so a partner's layer would be ignored.");
         ApplyLayer(me, "Debug Partner", "Debug", message.Part);
     }
+
+    /// Debug builds only: behave as if a paired, close partner had licked <paramref name="part"/>. The `lkd` reply
+    /// is shown instead of sent.
+    public void SimulateLickFromPartner(BodyPart part)
+    {
+        if (Me is null) return;
+        if (Protocol.Parse(Protocol.Lick(part)) is not { Verb: Verb.Lick } message)
+        {
+            Notifier.Error($"[debug] {part} did not survive the wire format.");
+            return;
+        }
+        Notifier.Info(BeLicked("Debug Partner", message.Part)
+            ? $"[debug] Would reply: {Protocol.Licked(message.Part)}"
+            : $"[debug] Your {part.DisplayName().ToLowerInvariant()} is clean: no reply.");
+    }
+
+    /// Debug builds only: behave as if Debug Partner confirmed a lick of <paramref name="part"/>. With
+    /// <paramref name="solicited"/> a matching pending lick is recorded first; without, it must be ignored.
+    public void SimulateLickConfirmation(BodyPart part, bool solicited)
+    {
+        if (Me is not { } me) return;
+        if (Protocol.Parse(Protocol.Licked(part)) is not { Verb: Verb.Licked } message)
+        {
+            Notifier.Error($"[debug] {part} did not survive the wire format.");
+            return;
+        }
+        const string key = "Debug Partner@Debug";
+        if (solicited) pendingLicks[(key, message.Part)] = DateTime.UtcNow + LickTimeout;
+        else Notifier.Info("[debug] Unsolicited confirmation: should change nothing.");
+        OnLickConfirmed(me, key, "Debug Partner", message.Part);
+    }
 #endif
+
+    /// A partner's verified lick: cleans the whole part (every stage) if it is layered. True when it did, so the
+    /// caller confirms with `lkd`. Blocks don't apply: they only stop layering.
+    private bool BeLicked(string name, BodyPart part)
+    {
+        if (!layers.Clean(part)) return false;
+        Notifier.Info($"{name} licked your {part.DisplayName().ToLowerInvariant()} clean.");
+        return true;
+    }
+
+    /// A partner's `lkd`: only for a lick we sent them of that part, still waiting. Then it lands on our mouth: a
+    /// clean mouth gets layered, a covered one spills a stage down the chest; licking their mouth (a kiss) cleans
+    /// ours instead. A blocked mouth (or chest, for the spill) takes nothing.
+    private void OnLickConfirmed(CharacterData me, string peerKey, string name, BodyPart part)
+    {
+        if (!pendingLicks.Remove((peerKey, part), out var expires) || expires < DateTime.UtcNow)
+        {
+            Plugin.Log.Information($"Ignored a lick confirmation from {peerKey} for {part} that matches no pending lick.");
+            return;
+        }
+
+        var partName = part.DisplayName().ToLowerInvariant();
+        if (part == BodyPart.Mouth)
+        {
+            layers.Clean(BodyPart.Mouth);
+            Notifier.Info($"You kissed {name} - both your mouths are clean.");
+            return;
+        }
+        if (BodyPart.Mouth.IsBlockedBy(me.BlockMask))
+        {
+            Notifier.Info($"You licked {name}'s {partName} clean.");
+            return;
+        }
+        if (!layers.IsLayered(BodyPart.Mouth))
+        {
+            layers.Layer(BodyPart.Mouth);
+            Notifier.Info($"You licked {name}'s {partName} clean - it's on your mouth now.");
+            return;
+        }
+
+        layers.RestartDrying(BodyPart.Mouth);
+        var spilled = !BodyPart.Chest.IsBlockedBy(me.BlockMask)
+                      && layers.Layer(BodyPart.Chest) is LayerOutcome.Layered or LayerOutcome.Advanced;
+        Notifier.Info(spilled
+            ? $"You licked {name}'s {partName} clean - your mouth is full, so it spills down your chest."
+            : $"You licked {name}'s {partName} clean.");
+    }
 
     private void ApplyLayer(CharacterData me, string name, string world, BodyPart part)
     {

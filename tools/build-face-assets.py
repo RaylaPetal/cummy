@@ -6,7 +6,9 @@ The source (default Textures/Finished/cum_decal_4 v1.1.png) is in the game's fac
 face paint 4: no alpha, black background, the colour itself is the coverage. Forehead art sits in the upper half,
 mouth art in the lower half. This writes Cummy/Assets/<partId>/ for Forehead and Mouth:
   diffuse.png  RGBA at OUT_SIZE: the source read as colour premultiplied over black, so the brightest channel
-               becomes the alpha and the colour is divided back out (over black it reproduces the source exactly)
+               gives the coverage and the colour is divided back out; the coverage is then scaled so the strongest
+               facial pixel is as opaque as the strongest pixel of the shipped body art (Full Body), keeping facial
+               layers as translucent as body layers instead of solid white
   normal.png   flat (127, 127, 255) with the diffuse alpha, like the body overlays: the wet look comes from the
                translucency and the compositor's gloss, not from painted relief
 plus Cummy/Assets/face-regions.png, which splits a wearer's full-face image into the facial parts: every face-paint
@@ -32,9 +34,13 @@ OUT_SIZE = 1024
 # Brightness at or below this is the export's background noise (a faint frame), not art.
 NOISE = 12
 
+# Shipped body art whose strongest alpha caps the facial art's (Full Body covers every body region).
+BODY_REFERENCE = TARGET / "fb" / "diffuse.png"
 
-def unpremultiply(img: Image.Image) -> Image.Image:
-    """Colour over black (brightness = coverage) -> RGBA whose straight alpha blend over black gives the same colour."""
+
+def unpremultiply(img: Image.Image, max_alpha: int = 255) -> Image.Image:
+    """Colour over black (brightness = coverage) -> RGBA with the colour divided back out and the coverage scaled so
+    full brightness becomes <max_alpha>."""
     src = img.convert("RGB").tobytes()
     out = bytearray(len(src) // 3 * 4)
     for i in range(len(src) // 3):
@@ -42,8 +48,25 @@ def unpremultiply(img: Image.Image) -> Image.Image:
         level = max(r, g, b)
         if level <= NOISE:
             continue
-        out[i * 4:i * 4 + 4] = bytes((r * 255 // level, g * 255 // level, b * 255 // level, level))
+        alpha = max(1, level * max_alpha // 255)
+        out[i * 4:i * 4 + 4] = bytes((r * 255 // level, g * 255 // level, b * 255 // level, alpha))
     return Image.frombytes("RGBA", img.size, bytes(out))
+
+
+def alpha_stats(alpha: Image.Image) -> str:
+    """Max and 50/90/99th percentile of the covered pixels' alpha."""
+    hist = alpha.histogram()
+    covered = sum(hist[1:])
+    if not covered:
+        return "no coverage"
+    picks, seen = {}, 0
+    for value in range(1, 256):
+        seen += hist[value]
+        for pct in (50, 90, 99):
+            if pct not in picks and seen >= covered * pct / 100:
+                picks[pct] = value
+    top = max(v for v in range(256) if hist[v])
+    return f"max {top}, p50 {picks[50]}, p90 {picks[90]}, p99 {picks[99]}"
 
 
 def split_row(alpha: Image.Image) -> int:
@@ -87,8 +110,14 @@ def main() -> int:
         print(f"missing {source}", file=sys.stderr)
         return 1
 
+    if not BODY_REFERENCE.is_file():
+        print(f"missing {BODY_REFERENCE} (run build-assets.py first)", file=sys.stderr)
+        return 1
+    body_alpha = Image.open(BODY_REFERENCE).getchannel("A")
+    body_max = body_alpha.getextrema()[1]
+
     art = Image.open(source).convert("RGB").resize((OUT_SIZE, OUT_SIZE), Image.Resampling.LANCZOS)
-    diffuse = unpremultiply(art)
+    diffuse = unpremultiply(art, body_max)
     cut = split_row(diffuse.getchannel("A"))
     halves = {"fh": (0, 0, OUT_SIZE, cut), "mo": (0, cut, OUT_SIZE, OUT_SIZE)}
 
@@ -109,7 +138,9 @@ def main() -> int:
         tile = Image.new("RGBA", part.size, (90, 90, 90, 255))
         tile.alpha_composite(part)
         sheet.paste(tile, (i * OUT_SIZE, 0))
-        print(f"{source.name} -> {part_id}")
+        print(f"{source.name} -> {part_id}: alpha {alpha_stats(part.getchannel('A'))}")
+
+    print(f"body reference fb: alpha {alpha_stats(body_alpha)}")
 
     labels = regions(coverage)
     labels.save(TARGET / "face-regions.png", optimize=True)

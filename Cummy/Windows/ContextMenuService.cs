@@ -9,16 +9,19 @@ using Dalamud.Game.Text;
 
 namespace Cummy.Windows;
 
-/// One "Cummy" right-click entry per player, opening a submenu: Pair / Layer... / Unpair on other players, the
-/// layered parts and Clean everything on yourself.
+/// One "Cummy" right-click entry per player, opening a submenu: Pair / Layer... / Lick... / Unpair on other players
+/// (Layer... and Lick... only within their range), the
+/// layered parts and Clean everything on yourself (only while manual cleaning is allowed).
 public sealed class ContextMenuService : IDisposable
 {
+    private readonly Configuration config;
     private readonly PairingService pairing;
     private readonly LayerState layers;
     private readonly LayerPickerWindow picker;
 
-    public ContextMenuService(PairingService pairing, LayerState layers, LayerPickerWindow picker)
+    public ContextMenuService(Configuration config, PairingService pairing, LayerState layers, LayerPickerWindow picker)
     {
+        this.config = config;
         this.pairing = pairing;
         this.layers = layers;
         this.picker = picker;
@@ -47,11 +50,16 @@ public sealed class ContextMenuService : IDisposable
 
         args.AddMenuItem(Submenu(() =>
         {
-            // Read when opened, so the items match the pairing state at that moment.
+            // Read when opened, so the items match the pairing state and distance at that moment.
             var peer = pairing.FindPeer(name, world);
             if (peer is null)
                 return [Item(pairing.IsInvitePending(name, world) ? "Pair (invite sent)" : "Pair", _ => pairing.Invite(name, world))];
-            return [Item("Layer...", _ => picker.Open(peer)), Item("Unpair", _ => pairing.Unpair(peer))];
+            var items = new List<IMenuItem>();
+            var distance = Proximity.DistanceTo(name, world);
+            if (distance <= Proximity.LayerRange) items.Add(Item("Layer...", _ => picker.Open(peer)));
+            if (distance <= Proximity.LickRange) items.Add(Item("Lick...", _ => picker.OpenLick(peer)));
+            items.Add(Item("Unpair", _ => pairing.Unpair(peer)));
+            return items;
         }));
     }
 
@@ -67,6 +75,7 @@ public sealed class ContextMenuService : IDisposable
 
     private void AddCleanMenu(IMenuOpenedArgs args)
     {
+        if (!config.ManualCleanAllowed) return;
         var dirty = layers.Snapshot();
         if (dirty.Count == 0) return;
 

@@ -13,12 +13,15 @@ public enum Verb
     Block,
     BlockExtended,
     BlockAll,
+    Lick,
+    Licked,
 }
 
 public sealed record ProtocolMessage(Verb Verb, string? Nonce = null, int BlockMask = 0, BodyPart Part = default);
 
 /// The `cmy1` tell format: `cmy1 inv <nonce> <mask>`, `cmy1 acc <nonce> <mask>`, `cmy1 unp`, `cmy1 lay <part>`,
-/// `cmy1 blk <mask>`, `cmy1 blx <mask>`, `cmy1 bly <mask>`. Short lowercase ASCII only, so ChatSender can whitelist
+/// `cmy1 blk <mask>`, `cmy1 blx <mask>`, `cmy1 bly <mask>`, `cmy1 lck <part>` (a lick of the receiver's
+/// part), `cmy1 lkd <part>` (the licked wearer's reply that it cleaned that part). Short lowercase ASCII only, so ChatSender can whitelist
 /// it exactly. Each block message carries only the bits every version that understands it accepts, because those
 /// versions reject the whole message otherwise (and would refuse to pair): `inv`/`acc`/`blk` the first body parts
 /// (<see cref="BodyParts.LegacyBodyMask"/>), `blx` those plus the facial parts (<see cref="BodyParts.ExtendedMask"/>),
@@ -44,6 +47,8 @@ public static class Protocol
     public static string Accept(string nonce, int blockMask) => $"{Prefix} acc {nonce} {Mask(blockMask & BodyParts.LegacyBodyMask)}";
     public static string Unpair() => $"{Prefix} unp";
     public static string Layer(BodyPart part) => $"{Prefix} lay {part.Id()}";
+    public static string Lick(BodyPart part) => $"{Prefix} lck {part.Id()}";
+    public static string Licked(BodyPart part) => $"{Prefix} lkd {part.Id()}";
     public static string Block(int blockMask) => $"{Prefix} blk {Mask(blockMask & BodyParts.LegacyBodyMask)}";
     public static string BlockExtended(int blockMask) => $"{Prefix} blx {Mask(blockMask & BodyParts.ExtendedMask)}";
     public static string BlockAll(int blockMask) => $"{Prefix} bly {Mask(blockMask)}";
@@ -86,6 +91,10 @@ public static class Protocol
                 return new ProtocolMessage(Verb.Unpair);
             case "lay" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var part):
                 return new ProtocolMessage(Verb.Layer, Part: part);
+            case "lck" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var licked):
+                return new ProtocolMessage(Verb.Lick, Part: licked);
+            case "lkd" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var confirmed):
+                return new ProtocolMessage(Verb.Licked, Part: confirmed);
             case "blk" when parts.Length == 3 && TryMask(parts[2], out var blkMask):
                 return new ProtocolMessage(Verb.Block, BlockMask: blkMask & BodyParts.LegacyBodyMask);
             case "blx" when parts.Length == 3 && TryMask(parts[2], out var blxMask):

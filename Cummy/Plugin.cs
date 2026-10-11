@@ -82,11 +82,11 @@ public sealed class Plugin : IDalamudPlugin
         quickLayerWindow = new QuickLayerWindow(Configuration, pairing, layers);
         WindowSystem.AddWindow(quickLayerWindow);
         washOff = new WashOffService(Configuration, layers);
-        contextMenu = new ContextMenuService(pairing, layers, pickerWindow);
+        contextMenu = new ContextMenuService(Configuration, pairing, layers, pickerWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Open Cummy. /cummy settings opens settings; /cummy clean cleans everything; /cummy clean <part> cleans one part (e.g. chest, arm left)."
+            HelpMessage = "Open Cummy. /cummy settings opens settings; /cummy clean cleans everything; /cummy clean <part> cleans one part (e.g. chest, arm left). Cleaning by hand is off while drying off or washing off is on."
         });
 
         PluginInterface.UiBuilder.Draw += WindowSystem.Draw;
@@ -139,17 +139,28 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         var target = words.Length > verb.Length ? words[verb.Length..].Trim() : "";
-        if (target.Length == 0 || target.Equals("all", StringComparison.OrdinalIgnoreCase)
-            || target.Equals("everything", StringComparison.OrdinalIgnoreCase))
-        {
-            Notifier.Info(layers.CleanAll() ? "All cleaned up." : "You're already clean.");
-            return;
-        }
-
-        if (!BodyParts.TryParseName(target, out var part))
+        var all = target.Length == 0 || target.Equals("all", StringComparison.OrdinalIgnoreCase)
+                  || target.Equals("everything", StringComparison.OrdinalIgnoreCase);
+        var part = default(BodyPart);
+        if (!all && !BodyParts.TryParseName(target, out part))
         {
             var names = string.Join(", ", BodyParts.DisplayOrder.Select(p => p.DisplayName().ToLowerInvariant()));
             Notifier.Error($"Unknown part '{target}'. Parts: {names}.");
+            return;
+        }
+
+#if !DEBUG
+        // Dev builds keep the command so testing doesn't mean waiting for timers or water.
+        if (Configuration.HowYouGetClean() is { } how)
+        {
+            Notifier.Info($"You can't clean yourself while drying off or washing off is on. {how} (Or a partner can lick it off.)");
+            return;
+        }
+#endif
+
+        if (all)
+        {
+            Notifier.Info(layers.CleanAll() ? "All cleaned up." : "You're already clean.");
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();

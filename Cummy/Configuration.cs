@@ -49,6 +49,30 @@ public class Configuration : IPluginConfiguration
     public bool WashInRain { get; set; } = false;
     public int RainWashMinutes { get; set; } = 2;
 
+    /// Cleaning yourself by hand (buttons, self menu, /cummy clean) only while nothing cleans you on its own: with
+    /// drying off or either washing-off option on, only time, water and a partner's lick clean you.
+    public bool ManualCleanAllowed => !DryOffEnabled && !WashInWater && !WashInRain;
+
+    /// How the wearer gets clean while <see cref="ManualCleanAllowed"/> is false, e.g. "Dries off, or washes off when
+    /// swimming or diving." Null while manual cleaning is allowed.
+    public string? HowYouGetClean()
+    {
+        if (ManualCleanAllowed) return null;
+        var water = (WashInWater, WashInRain) switch
+        {
+            (true, true) => "washes off when swimming, diving or in the rain",
+            (true, false) => "washes off when swimming or diving",
+            (false, true) => "washes off in the rain",
+            _ => null,
+        };
+        return (DryOffEnabled, water) switch
+        {
+            (true, null) => "Dries off over time.",
+            (true, _) => $"Dries off over time, or {water}.",
+            _ => $"{char.ToUpperInvariant(water![0])}{water[1..]}.",
+        };
+    }
+
     /// Moodles (opt-in): apply the wearer's saved moodle MoodleId whenever a partner's layer lands. MoodleTitle is
     /// only for naming the choice in settings when Moodles is missing or the moodle was deleted.
     public bool ApplyMoodle { get; set; } = false;

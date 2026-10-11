@@ -6,11 +6,13 @@ using Dalamud.Interface.Windowing;
 
 namespace Cummy.Windows;
 
-/// The body-part grid for one paired peer. Each click sends one layer tell; the window stays open.
+/// The body-part grid for one paired peer, to layer them or (in lick mode) lick parts off them. Each click sends one
+/// tell; the window stays open. Parts are disabled while the peer is out of range for the mode.
 public sealed class LayerPickerWindow : ThemedWindow
 {
     private readonly PairingService pairing;
     private PeerRecord? peer;
+    private bool lick;
 
     public LayerPickerWindow(PairingService pairing) : base("Layer###CummyLayerPicker")
     {
@@ -18,10 +20,15 @@ public sealed class LayerPickerWindow : ThemedWindow
         Flags = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse;
     }
 
-    public void Open(PeerRecord target)
+    public void Open(PeerRecord target) => Open(target, lick: false);
+
+    public void OpenLick(PeerRecord target) => Open(target, lick: true);
+
+    private void Open(PeerRecord target, bool lick)
     {
         peer = target;
-        WindowName = $"Layer {target.Name}###CummyLayerPicker";
+        this.lick = lick;
+        WindowName = $"{(lick ? "Lick" : "Layer")} {target.Name}###CummyLayerPicker";
         IsOpen = true;
     }
 
@@ -33,16 +40,24 @@ public sealed class LayerPickerWindow : ThemedWindow
             return;
         }
 
-        var nearby = PartGrid.IsNearby(current);
-        if (!nearby)
+        var inRange = PartGrid.InRange(current, lick ? Proximity.LickRange : Proximity.LayerRange);
+        if (!inRange)
         {
             Ui.Icon(FontAwesomeIcon.ExclamationTriangle, Ui.Warning);
             ImGui.SameLine();
-            ImGui.TextColored(Ui.Warning, $"{current.Name} isn't nearby.");
+            ImGui.TextColored(Ui.Warning, $"{current.Name} is too far away{(lick ? " to lick" : "")}.");
             ImGuiHelpers.ScaledDummy(2f);
         }
 
-        PartGrid.Draw(current, nearby, part => pairing.SendLayer(current, part), "picker");
-        Ui.FooterHint("Click a part to layer it - this stays open for more");
+        if (lick)
+        {
+            PartGrid.Draw(current, inRange, part => pairing.SendLick(current, part), "lick", lick: true);
+            Ui.FooterHint("Click a part to lick it off them - this stays open for more");
+        }
+        else
+        {
+            PartGrid.Draw(current, inRange, part => pairing.SendLayer(current, part), "picker");
+            Ui.FooterHint("Click a part to layer it - this stays open for more");
+        }
     }
 }
