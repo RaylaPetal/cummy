@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.0/Cummy-2.0.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.0/Cummy-2.0.0.0.zip",
-    "Changelog": "- Layers now build up in 3 stages: each layer on a part adds more, until it's fully covered.\n- New body parts: Hand Left/Right, Feet Left/Right, Leg Left/Right Back. Partners need this version to layer them.\n- Redrawn arms, and Arm/Hand Left and Right now land on the correct side.\n- New Forehead and Mouth art.\n- Dripping (optional, Settings > General): layers slowly drip down onto the parts below them.\n- Known issue: a full-body custom image doesn't cover the arms, hands, feet or leg backs yet.",
+    "Changelog": "- Full-body custom images now cover the arms, hands, feet and leg backs, each on the correct side.",
     "LastUpdate": "1791731082"
   }
 ]
