@@ -102,6 +102,14 @@ public sealed class LayerState : IDisposable
         return true;
     }
 
+    /// Restart one layered part's drying time without changing how it looks (no <see cref="Changed"/>).
+    public void RestartDrying(BodyPart part)
+    {
+        if (Current is not { } data || !data.LayeredAt.ContainsKey(part.Id())) return;
+        data.LayeredAt[part.Id()] = DateTime.UtcNow;
+        config.Save();
+    }
+
     /// Restart every layered part's drying time, e.g. when drying off is switched on, so nothing that was layered
     /// long ago vanishes the moment the option is ticked.
     public void ResetDryTimers()

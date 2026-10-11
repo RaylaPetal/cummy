@@ -84,7 +84,11 @@ public sealed class SettingsWindow : ThemedWindow
             Ui.Muted("Log in to a character to use this.");
             return;
         }
-        Ui.MutedWrapped("Layer yourself as if a paired partner had sent the tell. Dev builds only.");
+        Ui.MutedWrapped("Act as if a paired, close partner had sent the tell. Dev builds only.");
+        ImGuiHelpers.ScaledDummy(2f);
+        string[] modes = ["They layer me", "They lick me", "They confirm my lick", "Unsolicited confirmation"];
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        ImGui.Combo("##debugMode", ref debugMode, modes, modes.Length);
         foreach (var facial in new[] { false, true })
         {
             ImGuiHelpers.ScaledDummy(4f);
@@ -98,7 +102,15 @@ public sealed class SettingsWindow : ThemedWindow
                 var stage = layers.Stage(part);
                 var shown = stage == 0 ? "" : part.StageCount() > 1 ? $" {stage}/{part.StageCount()}" : " *";
                 if (ImGui.Button($"{part.DisplayName()}{shown}##debug{part.Id()}", new Vector2(-1, 0)))
-                    pairing.SimulateLayerFromPartner(part);
+                {
+                    switch (debugMode)
+                    {
+                        case 0: pairing.SimulateLayerFromPartner(part); break;
+                        case 1: pairing.SimulateLickFromPartner(part); break;
+                        case 2: pairing.SimulateLickConfirmation(part, solicited: true); break;
+                        default: pairing.SimulateLickConfirmation(part, solicited: false); break;
+                    }
+                }
                 if (stage > 0 && ImGui.IsItemHovered())
                     ImGui.SetTooltip(stage >= part.StageCount() ? "Fully covered" : $"Stage {stage} of {part.StageCount()}: another layer advances it");
             }
@@ -114,7 +126,19 @@ public sealed class SettingsWindow : ThemedWindow
         }
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
             ImGui.SetTooltip(configuration.DripEnabled ? "Every pending drip lands now." : "Turn dripping on in General first.");
+
+        ImGuiHelpers.ScaledDummy(4f);
+        Ui.Heading("Partner distances");
+        foreach (var peer in pairing.PeersSorted())
+        {
+            var d = Proximity.DistanceTo(peer.Name, peer.World);
+            Ui.Muted(d is { } y
+                ? $"{peer.Key}: {y:0.0}y (layer {(y <= Proximity.LayerRange ? "ok" : "no")}, lick {(y <= Proximity.LickRange ? "ok" : "no")})"
+                : $"{peer.Key}: not loaded");
+        }
     }
+
+    private int debugMode;
 #endif
 
     // ── General ──────────────────────────────────────────────────────────────
@@ -139,6 +163,7 @@ public sealed class SettingsWindow : ThemedWindow
         ImGuiHelpers.ScaledDummy(8f);
 
         Ui.Heading("Drying off");
+        Ui.MutedWrapped("While on, you can't clean yourself by hand.");
 
         var dryOff = configuration.DryOffEnabled;
         if (ImGui.Checkbox("Dry off over time", ref dryOff))
@@ -194,6 +219,7 @@ public sealed class SettingsWindow : ThemedWindow
         ImGuiHelpers.ScaledDummy(8f);
 
         Ui.Heading("Washing off");
+        Ui.MutedWrapped("While either is on, you can't clean yourself by hand.");
         var water = configuration.WashInWater;
         if (ImGui.Checkbox("Clean when swimming or diving", ref water))
         {
