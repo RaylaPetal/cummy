@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "2.0.0.0",
+    "AssemblyVersion": "2.0.0.1",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.0/Cummy-2.0.0.0.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.0/Cummy-2.0.0.0.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.1/Cummy-2.0.0.1.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.0.0.1/Cummy-2.0.0.1.zip",
     "Changelog": "- Full-body custom images now cover the arms, hands, feet and leg backs, each on the correct side.",
-    "LastUpdate": "1791731082"
+    "LastUpdate": "1791731239"
   }
 ]
