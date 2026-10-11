@@ -9,6 +9,13 @@ namespace Cummy.Compositor;
 /// stronger coverage wins - facial layers come out symmetric.
 public static class FaceBaker
 {
+    /// The game scales a face's face-paint coordinates before sampling the face paint: art at (u, v) shows where the
+    /// model's face-paint UV is DecalOrigin + (u, v) / DecalScale. Fitted to face paint as the game renders it (a
+    /// strand running from between the eyes to the nose tip, mouth art on the lips), consistent across face models
+    /// (nose tip at face-paint V ≈ 0.64 on each). Raw UVs put such art on the forehead and down the chin.
+    private const float DecalScale = 1.67f;
+    private const float DecalOriginU = 0.20f, DecalOriginV = 0.33f;
+
     /// <paramref name="art"/> (decal layout, any size) as an overlay for a <paramref name="w"/>×<paramref name="h"/>
     /// face texture. For a normal map (<paramref name="normal"/>), each triangle's in-plane direction is turned from
     /// the decal layout into the face texture's, so relief keeps pointing the right way on both halves.
@@ -44,8 +51,8 @@ public static class FaceBaker
                     float l3 = 1 - l1 - l2;
                     if (l1 < -1e-4f || l2 < -1e-4f || l3 < -1e-4f) continue;
 
-                    float u = l1 * a.DecalU + l2 * b.DecalU + l3 * d.DecalU;
-                    float v = l1 * a.DecalV + l2 * b.DecalV + l3 * d.DecalV;
+                    float u = (l1 * a.DecalU + l2 * b.DecalU + l3 * d.DecalU - DecalOriginU) * DecalScale;
+                    float v = (l1 * a.DecalV + l2 * b.DecalV + l3 * d.DecalV - DecalOriginV) * DecalScale;
                     if (u < 0 || u >= 1 || v < 0 || v >= 1) continue;   // outside the face-paint texture: nothing
 
                     Sample(art, u, v, out float r, out float g, out float bl, out float al);
