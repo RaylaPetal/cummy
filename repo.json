@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "2.1.0.1",
+    "AssemblyVersion": "2.1.0.2",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.1/Cummy-2.1.0.1.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.1/Cummy-2.1.0.1.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.2/Cummy-2.1.0.2.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.2/Cummy-2.1.0.2.zip",
     "Changelog": "- Facial layers now sit where face paint does: the forehead strand runs down the nose bridge and mouth layers sit on the lips, instead of landing on the forehead and down the chin.",
-    "LastUpdate": "1791739780"
+    "LastUpdate": "1791740273"
   }
 ]
