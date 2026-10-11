@@ -27,7 +27,7 @@ public sealed class CompositorService : IDisposable
     private const int ModPriority = 9999;
 
     /// Bump when compositing or the shipped art changes, so cached outputs from an older build are not reused.
-    private const int CompositeVersion = 5;
+    private const int CompositeVersion = 7;
 
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
