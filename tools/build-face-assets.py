@@ -1,72 +1,57 @@
-"""Convert [HLF] Cum Blush (by HighLowFlow) face-paint textures into the facial overlays Cummy ships.
+"""Convert the face-paint texture in Textures/Finished into the facial overlays Cummy ships.
 
-    python tools/build-face-assets.py "<Penumbra mod folder>/[HLF] Cum Blush"
+    python tools/build-face-assets.py ["<face-paint png>"]
 
-The mod replaces face paint 4 (chara/common/texture/decal_face/_decal_4.tex) with one variant per option. Those are
-uncompressed B8G8R8A8 in the game's face-paint (decal) layout: alpha is 255 everywhere and the coverage is the
-colour itself (black = nothing). For the Forehead and Mouth variants this writes Cummy/Assets/<partId>/:
-  diffuse.png  RGBA matched to the body overlays' look (semi-transparent goo, not paint): the decal's brightness
-               becomes the coverage, curved and scaled to the body art's opacity (peak ~55%), and the colour is the
-               body art's warm off-white, a little brighter in the thick cores
+The source (default Textures/Finished/cum_decal_4 v1.1.png) is in the game's face-paint (decal) layout, as worn in
+face paint 4: no alpha, black background, the colour itself is the coverage. Forehead art sits in the upper half,
+mouth art in the lower half. This writes Cummy/Assets/<partId>/ for Forehead and Mouth:
+  diffuse.png  RGBA at OUT_SIZE: the source read as colour premultiplied over black, so the brightest channel
+               becomes the alpha and the colour is divided back out (over black it reproduces the source exactly)
   normal.png   flat (127, 127, 255) with the diffuse alpha, like the body overlays: the wet look comes from the
                translucency and the compositor's gloss, not from painted relief
 plus Cummy/Assets/face-regions.png, which splits a wearer's full-face image into the facial parts: every face-paint
 pixel belongs to exactly one part (8-bit greyscale, pixel = Cummy's BodyPart number), grown outward from each part's
 art; and Textures/Regions/face-preview.png, both parts over grey with their regions tinted, for a quick look.
 
-Cummy maps these onto each wearer's own face at composite time. Do not ship them without the author's permission.
-Needs Pillow.
+Cummy maps these onto each wearer's own face at composite time. Needs Pillow.
 """
-import struct
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
+SOURCE = ROOT / "Textures" / "Finished" / "cum_decal_4 v1.1.png"
 TARGET = ROOT / "Cummy" / "Assets"
 PREVIEW = ROOT / "Textures" / "Regions" / "face-preview.png"
-DECAL = Path("chara") / "common" / "texture" / "decal_face" / "_decal_4.tex"
 
-# Mod option folder -> (Cummy part id, BodyPart value).
-PARTS = {"forehead": ("fh", 10), "mouth": ("mo", 11)}
+# Part id -> BodyPart value, top (forehead) to bottom (mouth) of the face-paint layout.
+PARTS = {"fh": 10, "mo": 11}
 
-B8G8R8A8 = 0x1450
-
-# Measured from the shipped body overlays (Cummy/Assets/<body part>/diffuse.png): alpha-weighted colour and the
-# highest alpha. Facial goo should read as the same substance.
-BODY_TINT = (221, 208, 204)
-BODY_PEAK_ALPHA = 139
-# > 1 thins the faint edges and mid-tones so the goo stays translucent; the body art averages ~36 alpha.
-OPACITY_CURVE = 1.6
-# How much brighter the thickest goo is than the thinnest (0 = flat tint).
-CORE_LIFT = 0.15
+OUT_SIZE = 1024
+# Brightness at or below this is the export's background noise (a faint frame), not art.
+NOISE = 12
 
 
-def load_tex(path: Path) -> Image.Image:
-    data = path.read_bytes()
-    fmt, width, height = struct.unpack_from("<IHH", data, 4)
-    if fmt != B8G8R8A8:
-        raise ValueError(f"{path}: format {fmt:#x}, expected B8G8R8A8 ({B8G8R8A8:#x})")
-    offset = struct.unpack_from("<I", data, 28)[0]
-    return Image.frombytes("RGBA", (width, height), data[offset:offset + width * height * 4], "raw", "BGRA")
-
-
-def goo(img: Image.Image) -> Image.Image:
-    """Decal (brightness = coverage) -> semi-transparent goo matching the body overlays."""
+def unpremultiply(img: Image.Image) -> Image.Image:
+    """Colour over black (brightness = coverage) -> RGBA whose straight alpha blend over black gives the same colour."""
     src = img.convert("RGB").tobytes()
     out = bytearray(len(src) // 3 * 4)
     for i in range(len(src) // 3):
         r, g, b = src[i * 3:i * 3 + 3]
-        level = max(r, g, b) / 255
-        if not level:
+        level = max(r, g, b)
+        if level <= NOISE:
             continue
-        alpha = round(BODY_PEAK_ALPHA * level ** OPACITY_CURVE)
-        if not alpha:
-            continue
-        lift = 1 - CORE_LIFT + CORE_LIFT * level
-        out[i * 4:i * 4 + 4] = bytes(min(255, round(c * lift + 255 * (1 - lift) * level)) for c in BODY_TINT) + bytes((alpha,))
+        out[i * 4:i * 4 + 4] = bytes((r * 255 // level, g * 255 // level, b * 255 // level, level))
     return Image.frombytes("RGBA", img.size, bytes(out))
+
+
+def split_row(alpha: Image.Image) -> int:
+    """The emptiest row in the middle third: the gap between the forehead and mouth art."""
+    w, h = alpha.size
+    px = alpha.load()
+    rows = range(h // 3, 2 * h // 3)
+    return min(rows, key=lambda y: (sum(1 for x in range(w) if px[x, y]), abs(y - h // 2)))
 
 
 def flat_normal(alpha: Image.Image) -> Image.Image:
@@ -94,37 +79,48 @@ def regions(coverage: dict[int, Image.Image]) -> Image.Image:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    if len(sys.argv) > 2:
         print(__doc__, file=sys.stderr)
         return 1
-    mod = Path(sys.argv[1])
-    sheet = Image.new("RGBA", (2048, 1024), (90, 90, 90, 255))
+    source = Path(sys.argv[1]) if len(sys.argv) == 2 else SOURCE
+    if not source.is_file():
+        print(f"missing {source}", file=sys.stderr)
+        return 1
+
+    art = Image.open(source).convert("RGB").resize((OUT_SIZE, OUT_SIZE), Image.Resampling.LANCZOS)
+    diffuse = unpremultiply(art)
+    cut = split_row(diffuse.getchannel("A"))
+    halves = {"fh": (0, 0, OUT_SIZE, cut), "mo": (0, cut, OUT_SIZE, OUT_SIZE)}
+
+    sheet = Image.new("RGBA", (OUT_SIZE * 2, OUT_SIZE), (90, 90, 90, 255))
     coverage = {}
-    for i, (option, (part_id, value)) in enumerate(PARTS.items()):
-        source = mod / "facial type" / option / DECAL
-        if not source.is_file():
-            print(f"missing {source}", file=sys.stderr)
+    for i, (part_id, value) in enumerate(PARTS.items()):
+        part = Image.new("RGBA", diffuse.size, (0, 0, 0, 0))
+        box = halves[part_id]
+        part.paste(diffuse.crop(box), box[:2])
+        if not part.getchannel("A").getbbox():
+            print(f"{part_id}: no art on its side of row {cut}", file=sys.stderr)
             return 1
-        diffuse = goo(load_tex(source))
         out = TARGET / part_id
         out.mkdir(parents=True, exist_ok=True)
-        diffuse.save(out / "diffuse.png", optimize=True)
-        flat_normal(diffuse.getchannel("A")).save(out / "normal.png", optimize=True)
-        coverage[value] = diffuse.getchannel("A")
-        tile = Image.new("RGBA", diffuse.size, (90, 90, 90, 255))
-        tile.alpha_composite(diffuse)
-        sheet.paste(tile, (i * 1024, 0))
-        print(f"{option} -> {part_id}")
+        part.save(out / "diffuse.png", optimize=True)
+        flat_normal(part.getchannel("A")).save(out / "normal.png", optimize=True)
+        coverage[value] = part.getchannel("A")
+        tile = Image.new("RGBA", part.size, (90, 90, 90, 255))
+        tile.alpha_composite(part)
+        sheet.paste(tile, (i * OUT_SIZE, 0))
+        print(f"{source.name} -> {part_id}")
+
     labels = regions(coverage)
     labels.save(TARGET / "face-regions.png", optimize=True)
     tint = Image.new("RGBA", labels.size, (0, 0, 0, 0))
-    tint.paste((60, 140, 255, 60), mask=labels.point(lambda v: 255 if v == 10 else 0))
-    tint.paste((255, 140, 60, 60), mask=labels.point(lambda v: 255 if v == 11 else 0))
+    tint.paste((60, 140, 255, 60), mask=labels.point(lambda v: 255 if v == PARTS["fh"] else 0))
+    tint.paste((255, 140, 60, 60), mask=labels.point(lambda v: 255 if v == PARTS["mo"] else 0))
     sheet.alpha_composite(tint, (0, 0))
-    sheet.alpha_composite(tint, (1024, 0))
-    print(f"regions: {TARGET / 'face-regions.png'}")
+    sheet.alpha_composite(tint, (OUT_SIZE, 0))
+    print(f"regions: {TARGET / 'face-regions.png'} (split at row {cut})")
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
-    sheet.convert("RGB").resize((1024, 512)).save(PREVIEW)
+    sheet.convert("RGB").resize((OUT_SIZE, OUT_SIZE // 2)).save(PREVIEW)
     print(f"preview: {PREVIEW}")
     return 0
 

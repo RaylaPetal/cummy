@@ -87,7 +87,7 @@ public sealed class PairingService : IDisposable
             return;
         }
         AddPeer(invite.Name, invite.World, invite.BlockMask);
-        sender.SendTell(invite.Name, invite.World, Protocol.BlockExtended(me.BlockMask));
+        SendFullBlocks(invite.Name, invite.World, me.BlockMask);
         Notifier.Info($"You are now paired with {invite.Key}.");
     }
 
@@ -114,16 +114,24 @@ public sealed class PairingService : IDisposable
         return true;
     }
 
-    /// The wearer changed their block list: tell every peer. `blk` (body bits, for every version) only when a body
-    /// part changed; `blx` (full list, updated versions) always.
-    public void BroadcastBlocks(bool bodyChanged)
+    /// The wearer changed whether <paramref name="changed"/> is blocked: tell every peer, with each block message
+    /// whose bits cover that part (`blk` for every version, `blx` for versions with facial parts, `bly` for current).
+    public void BroadcastBlocks(BodyPart changed)
     {
         if (Me is not { } me) return;
         foreach (var peer in me.Peers)
         {
-            if (bodyChanged) sender.SendTell(peer.Name, peer.World, Protocol.Block(me.BlockMask));
-            sender.SendTell(peer.Name, peer.World, Protocol.BlockExtended(me.BlockMask));
+            if ((changed.Bit() & BodyParts.LegacyBodyMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.Block(me.BlockMask));
+            if ((changed.Bit() & BodyParts.ExtendedMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.BlockExtended(me.BlockMask));
+            sender.SendTell(peer.Name, peer.World, Protocol.BlockAll(me.BlockMask));
         }
+    }
+
+    /// After pairing: the blocks `inv`/`acc` could not carry, for versions that understand them (others ignore them).
+    private void SendFullBlocks(string name, string world, int blockMask)
+    {
+        sender.SendTell(name, world, Protocol.BlockExtended(blockMask));
+        sender.SendTell(name, world, Protocol.BlockAll(blockMask));
     }
 
     // ── Incoming ───────────────────────────────────────────────────────────────
@@ -152,8 +160,8 @@ public sealed class PairingService : IDisposable
                 }
                 outgoing.Remove(key);
                 AddPeer(name, world, message.BlockMask);
-                // Now that they know us, send the full block list (facial parts included); older versions ignore it.
-                sender.SendTell(name, world, Protocol.BlockExtended(me.BlockMask));
+                // Now that they know us, send the blocks `inv` could not carry; older versions ignore them.
+                SendFullBlocks(name, world, me.BlockMask);
                 Notifier.Info($"{key} accepted - you are now paired.");
                 break;
 
@@ -164,16 +172,12 @@ public sealed class PairingService : IDisposable
                 Notifier.Info($"{gone.Key} unpaired from you.");
                 break;
 
-            case Verb.Block:
-                // Body bits only (what every version sends); keep the facial bits an earlier `blx` told us.
+            case Verb.Block or Verb.BlockExtended or Verb.BlockAll:
+                // Each message replaces only the bits it covers, keeping what another block message told us, so a
+                // `blk` arriving after a `bly` doesn't forget blocks it can't express.
                 if (me.FindPeer(name, world) is not { } blocker) return;
-                blocker.BlockMask = (blocker.BlockMask & ~BodyParts.BodyMask) | message.BlockMask;
-                config.Save();
-                break;
-
-            case Verb.BlockExtended:
-                if (me.FindPeer(name, world) is not { } extended) return;
-                extended.BlockMask = message.BlockMask;
+                var covers = Protocol.Covers(message.Verb);
+                blocker.BlockMask = (blocker.BlockMask & ~covers) | (message.BlockMask & covers);
                 config.Save();
                 break;
 
@@ -214,11 +218,24 @@ public sealed class PairingService : IDisposable
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();
-        var added = layers.Add(part);
-        Notifier.Info(added
-            ? $"{name} layered your {partName}."
-            : $"{name} tried to layer your {partName}, but it's already covered.");
-        if (added) LayerAccepted?.Invoke(part);
+        var outcome = layers.Layer(part);
+        var stage = layers.Stage(part);
+        switch (outcome)
+        {
+            case LayerOutcome.Layered:
+                Notifier.Info(part.StageCount() > 1
+                    ? $"{name} layered your {partName} (stage {stage} of {part.StageCount()})."
+                    : $"{name} layered your {partName}.");
+                break;
+            case LayerOutcome.Advanced:
+                Notifier.Info($"{name} layered your {partName}, now at stage {stage} of {part.StageCount()}.");
+                break;
+            case LayerOutcome.Full:
+                Notifier.Info($"{name} tried to layer your {partName}, but it's already fully covered.");
+                break;
+        }
+        // Every visible change, so the wearer's moodle (and its VFX) lands with each new stage too.
+        if (outcome is LayerOutcome.Layered or LayerOutcome.Advanced) LayerAccepted?.Invoke(part);
     }
 
     private void AddPeer(string name, string world, int blockMask)

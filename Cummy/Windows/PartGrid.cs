@@ -42,7 +42,8 @@ internal static class PartGrid
                 if (peer != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
                 {
                     if (blocked) ImGui.SetTooltip($"{peer.Name} has blocked this part.");
-                    else if (facial) ImGui.SetTooltip($"Facial layers need an up-to-date Cummy on {peer.Name}'s side too.");
+                    else if (part.NeedsRecentPartner())
+                        ImGui.SetTooltip($"{part.DisplayName()} needs an up-to-date Cummy on {peer.Name}'s side too.");
                 }
             }
         }

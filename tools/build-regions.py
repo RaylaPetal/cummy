@@ -11,7 +11,7 @@ part's region sits where its art does:
   3. Writes Textures/Regions/regions.generated.png (one flat colour per part, see PALETTE) and
      regions.preview.png (the map over a Bibo skin, --skin).
 
-Areas with no art nearby (hands, forearms) come out wrong, so the generated map is corrected once by hand: paint
+Areas with no art nearby come out wrong, so the generated map is corrected once by hand: paint
 over it in an image editor using only the PALETTE colours (no anti-aliasing) and save it as
 Textures/Regions/regions.png. Then:
 
@@ -50,6 +50,12 @@ PALETTE = {
     "ll": (6, (255, 128, 0)),
     "lr": (7, (150, 60, 255)),
     "st": (8, (255, 255, 255)),
+    "hl": (12, (128, 0, 0)),
+    "hr": (13, (0, 100, 0)),
+    "fl": (14, (0, 0, 140)),
+    "fr": (15, (128, 128, 0)),
+    "bl": (16, (255, 150, 200)),
+    "br": (17, (0, 128, 128)),
 }
 NONE = 255
 

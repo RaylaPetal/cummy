@@ -17,9 +17,10 @@ public sealed record FaceMapping(FaceModel Model, string Stamp);
 /// What stays expensive between composites, kept until the wearer's skin changes:
 /// <list type="bullet">
 /// <item>each skin texture decoded, plus its BC3 mip chain encoded once, keyed by the upstream file's stamp;</item>
-/// <item>each part's overlay decoded, resized to the skin's size and cropped to its coverage, keyed by its source's
-/// stamp (so changed art is never served from the cache);</item>
-/// <item>the wearer's custom images decoded at each skin size, and the region map that splits a full-body image.</item>
+/// <item>each part's overlay decoded, resized to the skin's size, cut to its stage and cropped to its coverage, keyed
+/// by its source's stamp and stage (so changed art is never served from the cache; only the current stage is kept);</item>
+/// <item>the wearer's custom images decoded at each skin size, and the label maps (the region map that splits a
+/// full-body image, the stage maps that cut staged parts) at each size.</item>
 /// </list>
 /// A composite then starts from a copy of the cached skin, paints only the parts' rectangles, and re-encodes only
 /// the 4×4 blocks that contain art; every other block is copied from the cached skin encoding. That is exact:
@@ -31,7 +32,7 @@ public sealed class CompositeCache
     private sealed record BaseEntry(string Stamp, RgbaImage Image, byte[][]? Encoded);
 
     private readonly Dictionary<string, BaseEntry> bases = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<(BodyPart Part, string File, string Stamp, int W, int H, string Face), OverlayCrop?> overlays = new();
+    private readonly Dictionary<(BodyPart Part, string File, string Stamp, int W, int H, string Face, int Stage), OverlayCrop?> overlays = new();
     private readonly Dictionary<(string Path, string Stamp, int W, int H), RgbaImage?> images = new();
     private readonly Dictionary<(string Map, int W, int H), byte[]?> regions = new();
     private readonly Dictionary<string, (string Stamp, FaceModel? Model)> faces = new(StringComparer.OrdinalIgnoreCase);
@@ -109,9 +110,13 @@ public sealed class CompositeCache
     public OverlayCrop? Overlay(BodyPart part, OverlaySource source, string file, int w, int h, FaceMapping? face = null)
     {
         LastUsedUtc = DateTime.UtcNow;
-        var key = (part, file, source.Stamp, w, h, face?.Stamp ?? "");
+        var stage = source.IsStageCut ? source.Stage : 0;
+        var key = (part, file, source.Stamp, w, h, face?.Stamp ?? "", stage);
         if (overlays.TryGetValue(key, out var hit)) return hit;
 
+        // A part only ever shows one stage: drop its other stages' crops of this file and size.
+        foreach (var old in overlays.Keys.Where(k => k.Part == part && k.File == file && k.W == w && k.H == h && k.Stage != stage).ToList())
+            overlays.Remove(old);
         var crop = LoadCrop(part, source, file, w, h, face);
         overlays[key] = crop;
         return crop;
@@ -134,8 +139,21 @@ public sealed class CompositeCache
     }
 
     /// The part's art from its source at <paramref name="w"/>×<paramref name="h"/> (0×0 = the art's own size),
-    /// split from a full image when that is the source.
+    /// split from a full image when that is the source, and cut to the source's stage.
     private RgbaImage? LoadArt(BodyPart part, OverlaySource source, string file, int w, int h)
+    {
+        if (LoadUncut(part, source, file, w, h) is not { } art) return null;
+        if (!source.IsStageCut) return art;
+
+        // Stage N: only pixels the shipped art first covers at stages 1..N (0 = the shipped art has no stroke there).
+        if (Labels(source.StageMap!, art.Width, art.Height) is not { } stages) return null;
+        var rgba = art.Rgba;   // a fresh buffer: shipped art is decoded per call, custom art copied out of the cache
+        for (int i = 0; i < stages.Length; i++)
+            if (stages[i] == 0 || stages[i] > source.Stage) rgba[i * 4 + 3] = 0;
+        return art;
+    }
+
+    private RgbaImage? LoadUncut(BodyPart part, OverlaySource source, string file, int w, int h)
     {
         var normal = file == OverlaySources.NormalFile;
         if ((normal ? source.Normal : source.Diffuse) is not { } path) return null;
@@ -164,7 +182,7 @@ public sealed class CompositeCache
         };
         if (map != null)
         {
-            if (Regions(map, img.Width, img.Height) is not { } labels) return null;
+            if (Labels(map, img.Width, img.Height) is not { } labels) return null;
             var own = (byte)part;
             for (int i = 0; i < labels.Length; i++)
                 if (labels[i] != own) rgba[i * 4 + 3] = 0;
@@ -197,9 +215,9 @@ public sealed class CompositeCache
         }
     }
 
-    /// The region map <paramref name="mapPath"/> at <paramref name="w"/>×<paramref name="h"/> (nearest neighbour:
-    /// labels must not blend): one BodyPart value per pixel.
-    private byte[]? Regions(string mapPath, int w, int h)
+    /// The label map <paramref name="mapPath"/> at <paramref name="w"/>×<paramref name="h"/> (nearest neighbour:
+    /// labels must not blend): one value per pixel, a BodyPart for region maps, a stage for stage maps.
+    private byte[]? Labels(string mapPath, int w, int h)
     {
         if (regions.TryGetValue((mapPath, w, h), out var hit)) return hit;
         byte[]? labels = null;
@@ -217,7 +235,7 @@ public sealed class CompositeCache
         }
         catch (Exception ex)
         {
-            Plugin.Log.Error(ex, $"Failed to load the region map {mapPath}; full images can't be split.");
+            Plugin.Log.Error(ex, $"Failed to load the label map {mapPath}; parts that need it are skipped.");
         }
         regions[(mapPath, w, h)] = labels;
         return labels;

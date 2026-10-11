@@ -12,14 +12,17 @@ public enum Verb
     Layer,
     Block,
     BlockExtended,
+    BlockAll,
 }
 
 public sealed record ProtocolMessage(Verb Verb, string? Nonce = null, int BlockMask = 0, BodyPart Part = default);
 
 /// The `cmy1` tell format: `cmy1 inv <nonce> <mask>`, `cmy1 acc <nonce> <mask>`, `cmy1 unp`, `cmy1 lay <part>`,
-/// `cmy1 blk <mask>`, `cmy1 blx <mask>`. Short lowercase ASCII only, so ChatSender can whitelist it exactly.
-/// `inv`/`acc`/`blk` carry only the body parts' bits, because older versions reject masks with other bits (and
-/// would refuse to pair); `blx` carries the full mask, facial parts included, and older versions ignore it.
+/// `cmy1 blk <mask>`, `cmy1 blx <mask>`, `cmy1 bly <mask>`. Short lowercase ASCII only, so ChatSender can whitelist
+/// it exactly. Each block message carries only the bits every version that understands it accepts, because those
+/// versions reject the whole message otherwise (and would refuse to pair): `inv`/`acc`/`blk` the first body parts
+/// (<see cref="BodyParts.LegacyBodyMask"/>), `blx` those plus the facial parts (<see cref="BodyParts.ExtendedMask"/>),
+/// `bly` every part. Versions that don't know a verb ignore it. The receiver replaces only the bits a message covers.
 public static class Protocol
 {
     /// Every protocol tell starts with this, whatever its version; recognised ones are hidden from chat.
@@ -37,12 +40,22 @@ public static class Protocol
         return new string(chars);
     }
 
-    public static string Invite(string nonce, int blockMask) => $"{Prefix} inv {nonce} {Mask(blockMask & BodyParts.BodyMask)}";
-    public static string Accept(string nonce, int blockMask) => $"{Prefix} acc {nonce} {Mask(blockMask & BodyParts.BodyMask)}";
+    public static string Invite(string nonce, int blockMask) => $"{Prefix} inv {nonce} {Mask(blockMask & BodyParts.LegacyBodyMask)}";
+    public static string Accept(string nonce, int blockMask) => $"{Prefix} acc {nonce} {Mask(blockMask & BodyParts.LegacyBodyMask)}";
     public static string Unpair() => $"{Prefix} unp";
     public static string Layer(BodyPart part) => $"{Prefix} lay {part.Id()}";
-    public static string Block(int blockMask) => $"{Prefix} blk {Mask(blockMask & BodyParts.BodyMask)}";
-    public static string BlockExtended(int blockMask) => $"{Prefix} blx {Mask(blockMask)}";
+    public static string Block(int blockMask) => $"{Prefix} blk {Mask(blockMask & BodyParts.LegacyBodyMask)}";
+    public static string BlockExtended(int blockMask) => $"{Prefix} blx {Mask(blockMask & BodyParts.ExtendedMask)}";
+    public static string BlockAll(int blockMask) => $"{Prefix} bly {Mask(blockMask)}";
+
+    /// The bits a block message of <paramref name="verb"/> covers: the receiver replaces these and keeps the rest.
+    public static int Covers(Verb verb) => verb switch
+    {
+        Verb.Block => BodyParts.LegacyBodyMask,
+        Verb.BlockExtended => BodyParts.ExtendedMask,
+        Verb.BlockAll => BodyParts.AllMask,
+        _ => 0,
+    };
 
     private static string Mask(int mask) => (mask & BodyParts.AllMask).ToString("x", CultureInfo.InvariantCulture);
 
@@ -74,9 +87,11 @@ public static class Protocol
             case "lay" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var part):
                 return new ProtocolMessage(Verb.Layer, Part: part);
             case "blk" when parts.Length == 3 && TryMask(parts[2], out var blkMask):
-                return new ProtocolMessage(Verb.Block, BlockMask: blkMask & BodyParts.BodyMask);
+                return new ProtocolMessage(Verb.Block, BlockMask: blkMask & BodyParts.LegacyBodyMask);
             case "blx" when parts.Length == 3 && TryMask(parts[2], out var blxMask):
-                return new ProtocolMessage(Verb.BlockExtended, BlockMask: blxMask);
+                return new ProtocolMessage(Verb.BlockExtended, BlockMask: blxMask & BodyParts.ExtendedMask);
+            case "bly" when parts.Length == 3 && TryMask(parts[2], out var blyMask, MaxMaskDigits):
+                return new ProtocolMessage(Verb.BlockAll, BlockMask: blyMask & BodyParts.AllMask);
             default:
                 return null;
         }
@@ -90,13 +105,18 @@ public static class Protocol
         return true;
     }
 
-    private static bool TryMask(string s, out int mask)
+    /// `bly` masks may be this long, so a later version can add parts without this one rejecting the message; bits
+    /// for parts this version doesn't know are dropped.
+    private const int MaxMaskDigits = 8;
+
+    /// Masks of the older verbs: at most 3 hex digits and no unknown bits, as every version has required.
+    private static bool TryMask(string s, out int mask, int maxDigits = 3)
     {
         mask = 0;
-        if (s.Length is 0 or > 3) return false;
-        if (!int.TryParse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var value)) return false;
-        if ((value & ~BodyParts.AllMask) != 0) return false;
-        mask = value;
+        if (s.Length == 0 || s.Length > maxDigits) return false;
+        if (!uint.TryParse(s, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var value)) return false;
+        if (maxDigits == 3 && (value & ~(uint)BodyParts.AllMask) != 0) return false;
+        mask = (int)(value & int.MaxValue);
         return true;
     }
 }

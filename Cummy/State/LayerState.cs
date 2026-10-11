@@ -5,8 +5,12 @@ using Dalamud.Plugin.Services;
 
 namespace Cummy.State;
 
-/// Which of the logged-in character's parts are layered: one layer per part (there is one texture per part).
-/// Layer, clean, dry off, persistence. Raises <see cref="Changed"/> whenever the set changes, which is what the
+/// What a layer command did: layered a clean part, advanced a layered one a stage, or nothing (no character, or the
+/// part was already at its last stage).
+public enum LayerOutcome { None, Layered, Advanced, Full }
+
+/// Which of the logged-in character's parts are layered, and at which stage (staged parts build up through
+/// <see cref="BodyParts.MaxStages"/> stages, each layer adding one). Layer, clean, dry off, persistence. Raises <see cref="Changed"/> whenever the set changes, which is what the
 /// compositor listens to.
 public sealed class LayerState : IDisposable
 {
@@ -37,24 +41,54 @@ public sealed class LayerState : IDisposable
     public bool IsLayered(BodyPart part)
         => Current is { } data && data.LayeredAt.ContainsKey(part.Id());
 
+    /// The part's stage: 0 when clean, else 1 to its <see cref="BodyParts.StageCount"/>.
+    public int Stage(BodyPart part)
+    {
+        if (Current is not { } data || !data.LayeredAt.ContainsKey(part.Id())) return 0;
+        var last = part.StageCount();
+        return data.Stages.TryGetValue(part.Id(), out var stage) ? Math.Clamp(stage, 1, last) : last;
+    }
+
     /// The layered parts, in paint order.
     public IReadOnlyList<BodyPart> Snapshot()
         => BodyParts.PaintOrder.Where(IsLayered).ToList();
 
     public bool IsEmpty => Snapshot().Count == 0;
 
-    /// Layers a clean part. False when nothing changed (no character, or the part is already layered).
-    public bool Add(BodyPart part)
+    /// Layers a clean part at stage 1, or advances a layered one a stage; either restarts its drying time.
+    /// <see cref="LayerOutcome.Full"/> (nothing changed) when the part is already at its last stage.
+    public LayerOutcome Layer(BodyPart part)
     {
-        if (Current is not { } data || IsLayered(part)) return false;
+        if (Current is not { } data) return LayerOutcome.None;
+        var stage = Stage(part);
+        if (stage >= part.StageCount()) return stage == 0 ? LayerOutcome.None : LayerOutcome.Full;
+
         data.LayeredAt[part.Id()] = DateTime.UtcNow;
+        if (part.StageCount() > 1) data.Stages[part.Id()] = stage + 1;
+        Commit();
+        return stage == 0 ? LayerOutcome.Layered : LayerOutcome.Advanced;
+    }
+
+    /// A drip from above (DripService): advances the part one stage (a clean part to stage 1) while it is below
+    /// <paramref name="cap"/> and its last stage, restarting its drying time. Quiet: no partner event, so no
+    /// notification or moodle. False when nothing changed.
+    public bool Drip(BodyPart part, int cap)
+    {
+        if (Current is not { } data) return false;
+        var stage = Stage(part);
+        if (stage >= Math.Min(cap, part.StageCount())) return false;
+
+        data.LayeredAt[part.Id()] = DateTime.UtcNow;
+        if (part.StageCount() > 1) data.Stages[part.Id()] = stage + 1;
         Commit();
         return true;
     }
 
+    /// Cleans the whole part, whatever its stage.
     public bool Clean(BodyPart part)
     {
         if (Current is not { } data || !data.LayeredAt.Remove(part.Id())) return false;
+        data.Stages.Remove(part.Id());
         Commit();
         return true;
     }
@@ -63,6 +97,7 @@ public sealed class LayerState : IDisposable
     {
         if (Current is not { } data || data.LayeredAt.Count == 0) return false;
         data.LayeredAt.Clear();
+        data.Stages.Clear();
         Commit();
         return true;
     }
@@ -102,7 +137,7 @@ public sealed class LayerState : IDisposable
         DryOff();
     }
 
-    /// Cleans every part layered longer ago than the drying time.
+    /// Cleans every part (whole, whatever its stage) layered or advanced longer ago than the drying time.
     private void DryOff()
     {
         if (!config.DryOffEnabled || Current is not { } data || data.LayeredAt.Count == 0) return;
@@ -111,7 +146,11 @@ public sealed class LayerState : IDisposable
         var dried = data.LayeredAt.Where(kv => kv.Value <= cutoff).Select(kv => kv.Key).ToList();
         if (dried.Count == 0) return;
 
-        foreach (var key in dried) data.LayeredAt.Remove(key);
+        foreach (var key in dried)
+        {
+            data.LayeredAt.Remove(key);
+            data.Stages.Remove(key);
+        }
         Plugin.Log.Information($"Dried off: {string.Join(", ", dried)}.");
         Commit();
     }

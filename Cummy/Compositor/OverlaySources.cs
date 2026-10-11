@@ -28,8 +28,18 @@ public readonly record struct OverlayTarget(BodyPart? Part, bool Face = false)
 
 /// Where one part's art comes from for a composite. <see cref="Normal"/> null = the part adds no relief.
 /// <see cref="Stamp"/> identifies the files' content ("shipped" for the plugin's own art), so cached crops and
-/// published outputs follow the art.
-public sealed record OverlaySource(OverlayOrigin Origin, string Diffuse, string? Normal, string Stamp);
+/// published outputs follow the art. A staged part's art is limited to the shipped coverage of <see cref="Stage"/>,
+/// read from <see cref="StageMap"/> (tools/build-assets.py); null for single-stage parts.
+public sealed record OverlaySource(OverlayOrigin Origin, string Diffuse, string? Normal, string Stamp,
+                                   string? StageMap = null, int Stage = 0)
+{
+    /// Whether the art is cut by the stage map. Shipped art at its last stage is the stage map's whole coverage
+    /// already; custom art is cut at every stage, so it never shows where the shipped art has no strokes.
+    public bool IsStageCut => StageMap != null && Stage > 0 && (Stage < BodyParts.MaxStages || Origin != OverlayOrigin.Shipped);
+
+    /// Identifies the art and its stage cut, for composite and pack signatures.
+    public string Key => IsStageCut ? $"{Stamp}@{Stage}" : Stamp;
+}
 
 public enum CustomState { None, Custom, Missing }
 
@@ -41,6 +51,7 @@ public sealed class OverlaySources
     public const int MaxSide = 8192;
     public const string DiffuseFile = "diffuse.png";
     public const string NormalFile = "normal.png";
+    public const string StagesFile = "stages.png";
     public static readonly string[] Extensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp"];
 
     private readonly Configuration config;
@@ -84,14 +95,16 @@ public sealed class OverlaySources
 
     public string? Error(OverlayTarget part) => errors.GetValueOrDefault(part.Key);
 
-    /// The art <paramref name="part"/> uses right now.
-    public OverlaySource Resolve(BodyPart part)
+    /// The art <paramref name="part"/> uses right now at <paramref name="stage"/> (1 to its stage count).
+    public OverlaySource Resolve(BodyPart part, int stage)
     {
-        if (Custom(OverlayTarget.Of(part)) is { } own) return own;
-        // Body parts split the full-body image (Bibo layout), facial parts the full-face image (face-paint layout).
-        if (Custom(OverlayTarget.FullFor(part)) is { } full) return full;
         var dir = Path.Combine(assetsDir, part.Id());
-        return new OverlaySource(OverlayOrigin.Shipped, Path.Combine(dir, DiffuseFile), Path.Combine(dir, NormalFile), "shipped");
+        var source = Custom(OverlayTarget.Of(part))
+                     // Body parts split the full-body image (Bibo layout), facial parts the full-face image (face-paint layout).
+                     ?? Custom(OverlayTarget.FullFor(part))
+                     ?? new OverlaySource(OverlayOrigin.Shipped, Path.Combine(dir, DiffuseFile), Path.Combine(dir, NormalFile), "shipped");
+        if (part.StageCount() == 1) return source;
+        return source with { StageMap = Path.Combine(dir, StagesFile), Stage = Math.Clamp(stage, 1, part.StageCount()) };
     }
 
     private OverlaySource? Custom(OverlayTarget part)

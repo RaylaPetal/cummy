@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Cummy.Compositor;
 using Cummy.Ipc;
+using Cummy.State;
 using Cummy.ThirdParty.Proteus;
 
 namespace Cummy.Proteus;
@@ -32,9 +33,14 @@ public sealed class OverlayPackService
     private readonly OverlaySources overlaySources;
     private readonly CompositeCache cache;
     private readonly Configuration configuration;
+    private readonly LayerState layers;
 
     private string? modDir;
     private bool registered;
+    // What each part's option was last written with, so a change (e.g. one part's stage) rewrites only that part.
+    // Pack writes run off-thread and may overlap; they take this lock.
+    private readonly object packLock = new();
+    private readonly Dictionary<BodyPart, (string Key, Dictionary<string, object>? Option)> writtenParts = new();
     private string? writtenSignature;
     private string? renderingSignature;
     private string? lastSelection;
@@ -44,9 +50,10 @@ public sealed class OverlayPackService
     private IReadOnlyList<BodyPart> wantedLayers = [];
 
     public OverlayPackService(PenumbraIpc penumbra, ProteusIpc proteus, OverlaySources overlaySources, CompositeCache cache,
-                              Configuration configuration)
+                              Configuration configuration, LayerState layers)
     {
         this.configuration = configuration;
+        this.layers = layers;
         this.penumbra = penumbra;
         this.proteus = proteus;
         this.overlaySources = overlaySources;
@@ -62,10 +69,11 @@ public sealed class OverlayPackService
         wantedCollection = collection;
         wantedLayers = layered;
 
-        var sources = Parts.ToDictionary(p => p, overlaySources.Resolve);
+        // Each option carries its part's current stage; a clean part's carries stage 1, what its first layer shows.
+        var sources = Parts.ToDictionary(p => p, p => overlaySources.Resolve(p, Math.Max(1, layers.Stage(p))));
         var looks = Parts.ToDictionary(p => p, configuration.ResolveLook);
         var signature = string.Join("|", bodyMaterials) + "#"
-                      + string.Join("|", Parts.Select(p => $"{p.Id()}={sources[p].Stamp}~{looks[p].Key}"));
+                      + string.Join("|", Parts.Select(p => $"{p.Id()}={sources[p].Key}~{looks[p].Key}"));
         if (signature != writtenSignature)
         {
             if (renderingSignature != signature)
@@ -201,15 +209,31 @@ public sealed class OverlayPackService
         WriteAtomic(path, JsonSerializer.Serialize(meta, Json));
     }
 
-    /// Each part's art (shipped copied as-is; custom and full-body-split rendered) and the Proteus sidecar.
+    /// Each changed part's art (shipped full art copied as-is; custom, full-body-split and stage-cut art rendered) and
+    /// the Proteus sidecar.
     private void WritePack(string dir, IReadOnlyDictionary<BodyPart, OverlaySource> sources,
                            IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials)
     {
+        lock (packLock)
+            WritePackLocked(dir, sources, looks, bodyMaterials);
+    }
+
+    private void WritePackLocked(string dir, IReadOnlyDictionary<BodyPart, OverlaySource> sources,
+                                 IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials)
+    {
         var options = new List<object>();
+        var materials = string.Join("|", bodyMaterials);
         foreach (var part in Parts)
         {
             var source = sources[part];
             var artDir = Path.Combine(dir, "Proteus", "art", part.Id());
+            var key = $"{dir}#{materials}#{source.Key}~{looks[part].Key}";
+            if (writtenParts.TryGetValue(part, out var written) && written.Key == key && Directory.Exists(artDir))
+            {
+                if (written.Option != null) options.Add(written.Option);
+                continue;
+            }
+            writtenParts.Remove(part);
             Directory.CreateDirectory(artDir);
             foreach (var old in Directory.EnumerateFiles(artDir)) File.Delete(old);
 
@@ -218,7 +242,7 @@ public sealed class OverlayPackService
             lock (cache.Lock)
             {
                 colour = cache.Art(part, source, OverlaySources.DiffuseFile);
-                if (source.Origin == OverlayOrigin.Shipped)
+                if (source.Origin == OverlayOrigin.Shipped && !source.IsStageCut)
                 {
                     diffuse = Copy(source.Diffuse, artDir, "diffuse");
                     if (source.Normal != null && File.Exists(source.Normal)) normal = Copy(source.Normal, artDir, "normal");
@@ -237,12 +261,19 @@ public sealed class OverlayPackService
                     }
                 }
             }
-            if (diffuse == null || colour == null) continue;
+            if (diffuse == null || colour == null)
+            {
+                writtenParts[part] = (key, null);
+                continue;
+            }
 
             // The wet look: Cummy's gloss (red = specular, green = roughness) wherever the art covers, as a Proteus
             // mask overlay (the spike showed Proteus applies it as shine), as strong as the look's Shine.
             PngWriter.Write(GlossMask(colour, looks[part].Shine), Path.Combine(artDir, "mask.png"));
-            options.Add(Option(part, diffuse, normal, bodyMaterials, looks[part]));
+            var option = Option(part, diffuse, normal, bodyMaterials, looks[part]);
+            options.Add(option);
+            writtenParts[part] = (key, option);
+            Plugin.Log.Debug($"Cummy Layers: wrote {part.Id()} ({source.Key}).");
         }
 
         var sidecar = new Dictionary<string, object>

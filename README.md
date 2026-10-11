@@ -35,7 +35,7 @@ git clone --recursive <this repo>
 dotnet build Cummy.slnx
 ```
 
-Requires the .NET 10 SDK and Dalamud installed at least once. Shipped overlays are generated from `Textures/Finished` with `tools/build-assets.py` (see that file). The body-part region map that splits a wearer's full-body overlay (`Cummy/Assets/regions.png`) is built from those overlays with `tools/build-regions.py`: `generate`, correct `Textures/Regions/regions.png` by hand, then `check` (see that file). Rerun `check` whenever the shipped overlays change. Facial overlays are converted from the [HLF] Cum Blush mod's face-paint textures with `tools/build-face-assets.py` (see that file).
+Requires the .NET 10 SDK and Dalamud installed at least once. Shipped overlays are generated from `Textures/Finished` with `tools/build-assets.py` (see that file), including each staged part's stage map from `Textures/Finished/Staged Parts`. The body-part region map that splits a wearer's full-body overlay (`Cummy/Assets/regions.png`) is built from those overlays with `tools/build-regions.py`: `generate`, correct `Textures/Regions/regions.png` by hand, then `check` (see that file). Rerun `check` whenever the shipped overlays change. Facial overlays are converted from the face-paint texture `Textures/Finished/cum_decal_4 v1.1.png` with `tools/build-face-assets.py` (see that file).
 
 ## Credits and licence
 

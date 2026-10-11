@@ -28,15 +28,17 @@ public sealed class SettingsWindow : ThemedWindow
     private readonly CompositorService compositor;
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
+    private readonly DripService drip;
     private readonly FileDialogManager fileDialog = new();
     private string? lastImageDir;
     /// The look being edited: shown while a control is dragged, saved and applied only when it is released.
     private LayerLook? lookDraft;
 
     public SettingsWindow(Configuration configuration, LayerState layers, PairingService pairing, OverlaySources overlaySources,
-                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService)
+                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip)
         : base("Cummy Settings###CummySettings")
     {
+        this.drip = drip;
         this.compositor = compositor;
         this.moodles = moodles;
         this.moodleService = moodleService;
@@ -93,15 +95,25 @@ public sealed class SettingsWindow : ThemedWindow
             {
                 if (part.IsFacial() != facial) continue;
                 ImGui.TableNextColumn();
-                var layered = layers.IsLayered(part);
-                if (ImGui.Button($"{(layered ? "* " : "")}{part.DisplayName()}##debug{part.Id()}", new Vector2(-1, 0)))
+                var stage = layers.Stage(part);
+                var shown = stage == 0 ? "" : part.StageCount() > 1 ? $" {stage}/{part.StageCount()}" : " *";
+                if (ImGui.Button($"{part.DisplayName()}{shown}##debug{part.Id()}", new Vector2(-1, 0)))
                     pairing.SimulateLayerFromPartner(part);
-                if (layered && ImGui.IsItemHovered()) ImGui.SetTooltip("Already layered");
+                if (stage > 0 && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(stage >= part.StageCount() ? "Fully covered" : $"Stage {stage} of {part.StageCount()}: another layer advances it");
             }
         }
         ImGuiHelpers.ScaledDummy(4f);
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "Clean everything"))
             layers.CleanAll();
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!configuration.DripEnabled))
+        {
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Tint, "Drip now"))
+                drip.DripNow();
+        }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(configuration.DripEnabled ? "Every pending drip lands now." : "Turn dripping on in General first.");
     }
 #endif
 
@@ -146,6 +158,38 @@ public sealed class SettingsWindow : ThemedWindow
                 configuration.DryOffMinutes = Math.Max(Configuration.MinDryMinutes, minutes);
                 configuration.Save();
             }
+        }
+        ImGuiHelpers.ScaledDummy(8f);
+
+        Ui.Heading("Dripping");
+        var dripping = configuration.DripEnabled;
+        if (ImGui.Checkbox("Drip onto the parts below", ref dripping))
+        {
+            configuration.DripEnabled = dripping;
+            configuration.Save();
+        }
+        ImGuiComponents.HelpMarker("Layered parts drip one stage onto the parts below them every interval (chest onto stomach "
+                                 + "and arms, stomach onto groin and legs, legs onto feet, mouth onto chest...), never past "
+                                 + "the stage above. Blocked parts are skipped and stop the drip. Only while you're logged in.");
+
+        using (ImRaii.Disabled(!configuration.DripEnabled))
+        {
+            var dripMinutes = Math.Clamp(configuration.DripMinutes, Configuration.MinDripMinutes, Configuration.MaxDripMinutes);
+            ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+            if (ImGui.SliderInt("##dripMinutes", ref dripMinutes, Configuration.MinDripMinutes, Configuration.MaxDripMinutes, "every %d minutes"))
+            {
+                configuration.DripMinutes = Math.Clamp(dripMinutes, Configuration.MinDripMinutes, Configuration.MaxDripMinutes);
+                configuration.Save();
+            }
+        }
+        if (configuration.DripEnabled && configuration.DryOffEnabled
+            && configuration.DripInterval >= TimeSpan.FromMinutes(Math.Max(Configuration.MinDryMinutes, configuration.DryOffMinutes)))
+        {
+            Ui.Icon(FontAwesomeIcon.ExclamationTriangle, Ui.Warning);
+            ImGui.SameLine();
+            ImGui.PushTextWrapPos();
+            ImGui.TextColored(Ui.Warning, "Layers dry off before they drip far: make the drip interval shorter than the drying time.");
+            ImGui.PopTextWrapPos();
         }
         ImGuiHelpers.ScaledDummy(8f);
 
@@ -353,7 +397,7 @@ public sealed class SettingsWindow : ThemedWindow
                 {
                     me.BlockMask = blocked ? me.BlockMask | part.Bit() : me.BlockMask & ~part.Bit();
                     configuration.Save();
-                    pairing.BroadcastBlocks(!part.IsFacial());
+                    pairing.BroadcastBlocks(part);
                 }
             }
         }

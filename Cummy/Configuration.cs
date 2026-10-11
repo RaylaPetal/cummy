@@ -9,12 +9,21 @@ namespace Cummy;
 public class Configuration : IPluginConfiguration
 {
     public const int MinDryMinutes = 5;
+    public const int MinDripMinutes = 2;
+    public const int MaxDripMinutes = 30;
 
     public int Version { get; set; } = 3;
 
     /// Layered parts clean themselves this long after being layered.
     public bool DryOffEnabled { get; set; } = false;
     public int DryOffMinutes { get; set; } = 30;
+
+    /// Dripping (opt-in): layered parts drip one stage onto the parts below them every DripMinutes (DripService).
+    public bool DripEnabled { get; set; } = false;
+    public int DripMinutes { get; set; } = 10;
+
+    /// <see cref="DripMinutes"/> within its range.
+    public TimeSpan DripInterval => TimeSpan.FromMinutes(Math.Clamp(DripMinutes, MinDripMinutes, MaxDripMinutes));
 
     /// Keyed by the local character's content id: pairings, blocks and layers belong to one character.
     public Dictionary<ulong, CharacterData> Characters { get; set; } = new();
@@ -73,8 +82,12 @@ public class CharacterData
     /// Parts this character refuses to be layered on.
     public int BlockMask { get; set; }
 
-    /// When each layered part (by BodyPart id) was layered, UTC. Absent = clean.
+    /// When each layered part (by BodyPart id) was last layered or advanced a stage, UTC. Absent = clean.
     public Dictionary<string, DateTime> LayeredAt { get; set; } = new();
+
+    /// The stage of each layered staged part (by BodyPart id). A layered part without an entry is at its last stage:
+    /// that is how layers saved before stages existed load, and older versions ignore this.
+    public Dictionary<string, int> Stages { get; set; } = new();
 
     /// The moodle Cummy put on this character and has not removed yet; Empty when none. Only this one is ever removed.
     public Guid AppliedMoodleId { get; set; } = Guid.Empty;

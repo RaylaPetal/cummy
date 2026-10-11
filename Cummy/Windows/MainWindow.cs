@@ -21,12 +21,14 @@ public sealed class MainWindow : ThemedWindow
     private readonly LayerState layers;
     private readonly PairingService pairing;
     private readonly CompositorService compositor;
+    private readonly DripService drip;
     private readonly LayerPickerWindow picker;
 
     public MainWindow(Configuration configuration, LayerState layers, PairingService pairing, CompositorService compositor,
-                      LayerPickerWindow picker, Action openSettings)
+                      DripService drip, LayerPickerWindow picker, Action openSettings)
         : base("Cummy###CummyMain")
     {
+        this.drip = drip;
         this.configuration = configuration;
         this.layers = layers;
         this.pairing = pairing;
@@ -150,6 +152,8 @@ public sealed class MainWindow : ThemedWindow
                 ImGui.TextUnformatted(part.DisplayName());
 
                 var pills = data.LayeredAt.TryGetValue(part.Id(), out var at) ? Pills(at) : [];
+                if (part.StageCount() > 1)
+                    pills = [($"stage {layers.Stage(part)}/{part.StageCount()}", PillTone.Accent), .. pills];
                 var spacing = ImGui.GetStyle().ItemSpacing.X;
                 var width = Ui.IconButtonWidth(FontAwesomeIcon.Broom) + pills.Sum(p => Ui.PillWidth(p.Text) + spacing);
                 Ui.AlignRight(width);
@@ -163,6 +167,10 @@ public sealed class MainWindow : ThemedWindow
                 if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Clean your {part.DisplayName().ToLowerInvariant()}");
             });
         }
+
+        // Where the layers are about to drip (only while dripping is on: the service keeps no countdowns otherwise).
+        foreach (var (part, wait) in drip.Pending())
+            Ui.Muted($"{part.DisplayName()}: drip in {(wait < TimeSpan.FromMinutes(1) ? "<1m" : Ui.Span(wait))}");
     }
 
     private void Clean(BodyPart part)

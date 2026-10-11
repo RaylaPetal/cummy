@@ -50,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly InviteWindow inviteWindow;
     private readonly QuickLayerWindow quickLayerWindow;
     private readonly WashOffService washOff;
+    private readonly DripService drip;
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
     private readonly ContextMenuService contextMenu;
@@ -59,6 +60,7 @@ public sealed class Plugin : IDalamudPlugin
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 
         layers = new LayerState(Configuration);
+        drip = new DripService(Configuration, layers);
         sender = new ChatSender();
         listener = new ChatListener();
         pairing = new PairingService(Configuration, layers, sender, listener);
@@ -69,9 +71,9 @@ public sealed class Plugin : IDalamudPlugin
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
 
-        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService);
+        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip);
         pickerWindow = new LayerPickerWindow(pairing);
-        mainWindow = new MainWindow(Configuration, layers, pairing, compositor, pickerWindow, ToggleConfigUi);
+        mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi);
         inviteWindow = new InviteWindow(pairing);
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(settingsWindow);
@@ -101,6 +103,7 @@ public sealed class Plugin : IDalamudPlugin
 
         contextMenu.Dispose();
         washOff.Dispose();
+        drip.Dispose();
         moodleService.Dispose();
         moodles.Dispose();
         WindowSystem.RemoveAllWindows();

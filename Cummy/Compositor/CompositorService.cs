@@ -27,7 +27,7 @@ public sealed class CompositorService : IDisposable
     private const int ModPriority = 9999;
 
     /// Bump when compositing or the shipped art changes, so cached outputs from an older build are not reused.
-    private const int CompositeVersion = 3;
+    private const int CompositeVersion = 4;
 
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
@@ -142,7 +142,7 @@ public sealed class CompositorService : IDisposable
         this.configuration = configuration;
         this.proteus = proteus;
         cache = new CompositeCache(overlaySources.RegionMapPath, overlaySources.FaceRegionMapPath);
-        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration);
+        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers);
 
         // Older builds wrote their textures here and published a temporary mod; both are superseded.
         try
@@ -475,10 +475,11 @@ public sealed class CompositorService : IDisposable
     {
         // Each part's art and look are part of what the output depends on; shipped art with the default look keeps the
         // plain id (and file names).
-        var sources = parts.ToDictionary(p => p, overlaySources.Resolve);
+        var sources = parts.ToDictionary(p => p, p => overlaySources.Resolve(p, layers.Stage(p)));
         var looks = parts.ToDictionary(p => p, configuration.ResolveLook);
         string KeyOf(IEnumerable<BodyPart> ps) => string.Join(",", ps.Select(p =>
             (sources[p].Origin == OverlayOrigin.Shipped ? p.Id() : $"{p.Id()}={sources[p].Stamp}")
+            + (sources[p].Stage is > 0 and < BodyParts.MaxStages ? $"@{sources[p].Stage}" : "")
             + (looks[p].IsDefault ? "" : $"~{looks[p].Key}")));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var plans = new List<MaterialPlan>();
