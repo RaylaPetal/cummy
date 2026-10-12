@@ -344,6 +344,11 @@ public sealed class PairingService : IDisposable
 
     private void ApplyLayer(CharacterData me, string name, string world, BodyPart part)
     {
+        if (part == BodyPart.FullBody)
+        {
+            ApplyFullBody(me, name, world);
+            return;
+        }
         if (part.IsBlockedBy(me.BlockMask))
         {
             Plugin.Log.Information($"Ignored a blocked {part} layer from {name}@{world}.");
@@ -368,6 +373,26 @@ public sealed class PairingService : IDisposable
         }
         // Every visible change, so the wearer's moodle (and its VFX) lands with each new stage too.
         if (outcome is LayerOutcome.Layered or LayerOutcome.Advanced) LayerAccepted?.Invoke(part);
+    }
+
+    /// A Full Body layer: one layer on every unblocked regional part, with one notification and one moodle.
+    private void ApplyFullBody(CharacterData me, string name, string world)
+    {
+        if ((BodyParts.RegionalMask & ~me.BlockMask) == 0)
+        {
+            Plugin.Log.Information($"Ignored a Full Body layer from {name}@{world}: every body part is blocked.");
+            return;
+        }
+        var (changed, stage) = layers.LayerAll(me.BlockMask);
+        if (changed.Count == 0)
+        {
+            Notifier.Info($"{name} tried to layer your whole body, but it's already fully covered.");
+            return;
+        }
+        Notifier.Info(stage is > 1
+            ? $"{name} layered your whole body, now at stage {stage} of {BodyParts.MaxStages}."
+            : $"{name} layered your whole body.");
+        LayerAccepted?.Invoke(BodyPart.FullBody);
     }
 
     private void AddPeer(string name, string world, int blockMask)

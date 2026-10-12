@@ -173,10 +173,10 @@ public sealed class CompositeCache
             for (int i = 3; i < rgba.Length; i += 4) rgba[i] = c[i];
         }
 
-        // A part's share of a full image: nothing outside its region (Full Body uses the whole full-body image).
+        // A part's share of a full image: nothing outside its region.
         var map = source.Origin switch
         {
-            OverlayOrigin.FullBody when part != BodyPart.FullBody => regionMapPath,
+            OverlayOrigin.FullBody => regionMapPath,
             OverlayOrigin.FullFace => faceRegionMapPath,
             _ => null,
         };

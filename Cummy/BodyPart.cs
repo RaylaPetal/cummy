@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Cummy;
 
@@ -16,6 +17,7 @@ public enum BodyPart
     LegLeft = 6,
     LegRight = 7,
     Stomach = 8,
+    /// Not a part: a layer target that layers every regional part once. Kept for its wire id and block bit.
     FullBody = 9,
 
     // Facial parts: composited onto the wearer's own face through the face-paint layout (FaceBaker).
@@ -42,26 +44,34 @@ public static class BodyParts
     /// The bits `blx` carries: legacy body parts and facial parts. Versions with facial parts reject any other bit.
     public const int ExtendedMask = (1 << 12) - 1;
 
-    /// Stages of a staged part (regional body parts); Full Body and facial parts have one.
+    /// Stages of a staged part (regional body parts); facial parts have one.
     public const int MaxStages = 3;
 
-    /// Paint order: whole-body coat first, then torso, then limbs (feet after legs: their calf strokes overlap).
+    /// Paint order: torso first, then limbs (feet after legs: their calf strokes overlap). Full Body is not a part
+    /// that is painted or stored: it layers every regional part (<see cref="Regional"/>).
     public static readonly IReadOnlyList<BodyPart> PaintOrder =
     [
-        BodyPart.FullBody, BodyPart.Back, BodyPart.Stomach, BodyPart.Chest, BodyPart.Butt, BodyPart.Groin,
+        BodyPart.Back, BodyPart.Stomach, BodyPart.Chest, BodyPart.Butt, BodyPart.Groin,
         BodyPart.LegLeftBack, BodyPart.LegRightBack, BodyPart.ArmLeft, BodyPart.ArmRight, BodyPart.HandLeft,
         BodyPart.HandRight, BodyPart.LegLeft, BodyPart.LegRight, BodyPart.FeetLeft, BodyPart.FeetRight,
         BodyPart.Forehead, BodyPart.Mouth,
     ];
 
-    /// Picker/menu order: body parts, then facial parts (UIs group them with <see cref="IsFacial"/>).
+    /// Picker/menu order: body parts, then facial parts (UIs group them with <see cref="IsFacial"/>). Full Body is not
+    /// listed: the layer picker offers it on its own.
     public static readonly IReadOnlyList<BodyPart> DisplayOrder =
     [
         BodyPart.Chest, BodyPart.Back, BodyPart.Stomach, BodyPart.Butt, BodyPart.ArmLeft, BodyPart.ArmRight,
         BodyPart.HandLeft, BodyPart.HandRight, BodyPart.LegLeft, BodyPart.LegRight, BodyPart.LegLeftBack,
-        BodyPart.LegRightBack, BodyPart.FeetLeft, BodyPart.FeetRight, BodyPart.Groin, BodyPart.FullBody,
+        BodyPart.LegRightBack, BodyPart.FeetLeft, BodyPart.FeetRight, BodyPart.Groin,
         BodyPart.Forehead, BodyPart.Mouth,
     ];
+
+    /// The regional body parts, in display order: what a Full Body layer layers.
+    public static readonly IReadOnlyList<BodyPart> Regional = [.. DisplayOrder.Where(p => !p.IsFacial())];
+
+    /// The block-mask bits of <see cref="Regional"/>.
+    public static readonly int RegionalMask = Regional.Aggregate(0, (mask, p) => mask | p.Bit());
 
     public static bool IsFacial(this BodyPart part) => part is BodyPart.Forehead or BodyPart.Mouth;
 
@@ -70,7 +80,7 @@ public static class BodyParts
 
     /// How many stages the part builds up through: <see cref="MaxStages"/> for regional body parts, else 1.
     public static int StageCount(this BodyPart part)
-        => part == BodyPart.FullBody || part.IsFacial() ? 1 : MaxStages;
+        => part.IsFacial() ? 1 : MaxStages;
 
     /// Wire id; also the asset folder name (tools/build-assets.py).
     public static string Id(this BodyPart part) => part switch
@@ -119,8 +129,14 @@ public static class BodyParts
         _ => throw new ArgumentOutOfRangeException(nameof(part)),
     };
 
+    /// A wire id: a part's, or Full Body's (a layer target, not a part).
     public static bool TryParseId(string id, out BodyPart part)
     {
+        if (id == BodyPart.FullBody.Id())
+        {
+            part = BodyPart.FullBody;
+            return true;
+        }
         foreach (var p in DisplayOrder)
         {
             if (p.Id() == id)

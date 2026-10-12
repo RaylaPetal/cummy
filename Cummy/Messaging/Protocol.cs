@@ -62,7 +62,10 @@ public static class Protocol
         _ => 0,
     };
 
-    private static string Mask(int mask) => (mask & BodyParts.AllMask).ToString("x", CultureInfo.InvariantCulture);
+    /// Full Body's bit is never sent: it isn't blockable on its own any more (blocking parts limits it), and a cleared
+    /// bit tells older partners they may send it.
+    private static string Mask(int mask)
+        => (mask & BodyParts.AllMask & ~BodyPart.FullBody.Bit()).ToString("x", CultureInfo.InvariantCulture);
 
     /// Whether a tell belongs to this plugin at all: `cmy` followed by a version number. Such tells are hidden
     /// even when their version or content is not understood.

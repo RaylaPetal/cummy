@@ -12,7 +12,9 @@ public class Configuration : IPluginConfiguration
     public const int MinDripMinutes = 2;
     public const int MaxDripMinutes = 30;
 
-    public int Version { get; set; } = 3;
+    public const int CurrentVersion = 4;
+
+    public int Version { get; set; } = CurrentVersion;
 
     /// Layered parts clean themselves this long after being layered.
     public bool DryOffEnabled { get; set; } = false;
@@ -95,6 +97,37 @@ public class Configuration : IPluginConfiguration
     public void Save()
     {
         Plugin.PluginInterface.SavePluginConfig(this);
+    }
+
+    /// Brings a loaded configuration up to date; true when it changed and needs saving. Runs on every load, not only
+    /// below <see cref="CurrentVersion"/>, so state written by an older build after a downgrade is fixed up too.
+    public bool Migrate()
+    {
+        var changed = Version < CurrentVersion;
+        Version = Math.Max(Version, CurrentVersion);
+        // 4: Full Body stopped being a part. A Full Body layer becomes stage 1 on the clean regional parts it would
+        // have layered (keeping its time); Full Body blocks are dropped (blocking parts limits Full Body now).
+        var fullBody = BodyPart.FullBody.Id();
+        foreach (var data in Characters.Values)
+        {
+            if (data.LayeredAt.Remove(fullBody, out var at))
+            {
+                foreach (var part in BodyParts.Regional)
+                {
+                    if (part.IsBlockedBy(data.BlockMask) || data.LayeredAt.ContainsKey(part.Id())) continue;
+                    data.LayeredAt[part.Id()] = at;
+                    data.Stages[part.Id()] = 1;
+                }
+                changed = true;
+            }
+            changed |= data.Stages.Remove(fullBody);
+            if (BodyPart.FullBody.IsBlockedBy(data.BlockMask))
+            {
+                data.BlockMask &= ~BodyPart.FullBody.Bit();
+                changed = true;
+            }
+        }
+        return changed;
     }
 }
 

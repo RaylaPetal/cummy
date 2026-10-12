@@ -59,14 +59,41 @@ public sealed class LayerState : IDisposable
     /// <see cref="LayerOutcome.Full"/> (nothing changed) when the part is already at its last stage.
     public LayerOutcome Layer(BodyPart part)
     {
-        if (Current is not { } data) return LayerOutcome.None;
+        // Full Body is not a part: see LayerAll.
+        if (part == BodyPart.FullBody || Current is not { } data) return LayerOutcome.None;
         var stage = Stage(part);
         if (stage >= part.StageCount()) return stage == 0 ? LayerOutcome.None : LayerOutcome.Full;
 
-        data.LayeredAt[part.Id()] = DateTime.UtcNow;
-        if (part.StageCount() > 1) data.Stages[part.Id()] = stage + 1;
+        Step(data, part, stage);
         Commit();
         return stage == 0 ? LayerOutcome.Layered : LayerOutcome.Advanced;
+    }
+
+    /// A Full Body layer: one <see cref="Layer"/> step on every regional part not in <paramref name="blockMask"/>, in
+    /// one commit (one recomposite). Returns the parts that changed and the stage they all reached, or null for
+    /// <c>Stage</c> when they ended at different stages. No parts changed: nothing was layerable or all were full.
+    public (IReadOnlyList<BodyPart> Changed, int? Stage) LayerAll(int blockMask)
+    {
+        if (Current is not { } data) return ([], null);
+        var changed = new List<BodyPart>();
+        var stages = new HashSet<int>();
+        foreach (var part in BodyParts.Regional)
+        {
+            var stage = Stage(part);
+            if (part.IsBlockedBy(blockMask) || stage >= part.StageCount()) continue;
+            Step(data, part, stage);
+            changed.Add(part);
+            stages.Add(stage + 1);
+        }
+        if (changed.Count > 0) Commit();
+        return (changed, stages.Count == 1 ? stages.First() : null);
+    }
+
+    /// Layers a clean part at stage 1 or advances it one stage, restarting its drying time. No commit.
+    private static void Step(CharacterData data, BodyPart part, int stage)
+    {
+        data.LayeredAt[part.Id()] = DateTime.UtcNow;
+        if (part.StageCount() > 1) data.Stages[part.Id()] = stage + 1;
     }
 
     /// A drip from above (DripService): advances the part one stage (a clean part to stage 1) while it is below

@@ -41,7 +41,6 @@ PARTS = {
     "Leg Left": ("ll", True),
     "Leg Right": ("lr", True),
     "Stomach": ("st", True),
-    "Full Body": ("fb", False),
     "Hand Left": ("hr", True),
     "Hand Right": ("hl", True),
     "Feet Left": ("fl", True),

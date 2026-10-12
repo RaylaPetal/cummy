@@ -26,7 +26,7 @@ public sealed class OverlayPackService
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     /// The parts Proteus composites (facial layers stay with Cummy's own compositor).
-    public static readonly IReadOnlyList<BodyPart> Parts = BodyParts.DisplayOrder.Where(p => !p.IsFacial()).ToList();
+    public static readonly IReadOnlyList<BodyPart> Parts = BodyParts.Regional;
 
     private readonly PenumbraIpc penumbra;
     private readonly ProteusIpc proteus;

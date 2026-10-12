@@ -37,7 +37,8 @@ NOISE = 12
 
 # The shipped body art looks right in game, so the facial art copies its statistics: the source's brightness order is
 # kept, but alpha and colour are remapped so their distributions match the body art's (quantile matching).
-BODY_REFERENCE = TARGET / "fb" / "diffuse.png"
+# The whole-body source art, the same pixels Cummy used to ship as Full Body's art.
+BODY_REFERENCE = ROOT / "Textures" / "Finished" / "Full Body" / "Full Body.png"
 
 # The thickest goo (above this quantile of the source's brightness) eases from the body-matched alpha up to
 # THICK_ALPHA, for the few bright, nearly solid blobs; everything else stays a see-through film like the body's.
@@ -178,7 +179,7 @@ def main() -> int:
         return 1
 
     if not BODY_REFERENCE.is_file():
-        print(f"missing {BODY_REFERENCE} (run build-assets.py first)", file=sys.stderr)
+        print(f"missing {BODY_REFERENCE}", file=sys.stderr)
         return 1
     body = Image.open(BODY_REFERENCE).convert("RGBA")
 
@@ -210,7 +211,7 @@ def main() -> int:
         sheet.paste(tile, (i * OUT_SIZE, 0))
         print(f"{source.name} -> {part_id}: alpha {alpha_stats(part.getchannel('A'))}")
 
-    print(f"body reference fb: alpha {alpha_stats(body.getchannel('A'))}")
+    print(f"body reference: alpha {alpha_stats(body.getchannel('A'))}")
 
     labels = regions(coverage)
     labels.save(TARGET / "face-regions.png", optimize=True)

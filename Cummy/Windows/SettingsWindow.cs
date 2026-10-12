@@ -114,6 +114,13 @@ public sealed class SettingsWindow : ThemedWindow
                 if (stage > 0 && ImGui.IsItemHovered())
                     ImGui.SetTooltip(stage >= part.StageCount() ? "Fully covered" : $"Stage {stage} of {part.StageCount()}: another layer advances it");
             }
+            // Full Body isn't a part: it can only be layered (one stage on every unblocked body part).
+            if (!facial && debugMode == 0)
+            {
+                ImGui.TableNextColumn();
+                if (ImGui.Button($"{BodyPart.FullBody.DisplayName()}##debug{BodyPart.FullBody.Id()}", new Vector2(-1, 0)))
+                    pairing.SimulateLayerFromPartner(BodyPart.FullBody);
+            }
         }
         ImGuiHelpers.ScaledDummy(4f);
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "Clean everything"))

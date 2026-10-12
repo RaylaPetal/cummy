@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.2/Cummy-2.1.0.2.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.1.0.2/Cummy-2.1.0.2.zip",
-    "Changelog": "- Facial layers now sit where face paint does: the forehead strand runs down the nose bridge and mouth layers sit on the lips, instead of landing on the forehead and down the chin.",
+    "Changelog": "- Full Body is no longer its own part: it layers every body part you haven't blocked one stage, so the first Full Body is a light coat all over, the second takes everything to stage 2, and the third to stage 3. One notification and one moodle per Full Body.\n- Full Body no longer has its own row, art or block. A Full Body you had on becomes stage 1 on your clean body parts.",
     "LastUpdate": "1791740273"
   }
 ]

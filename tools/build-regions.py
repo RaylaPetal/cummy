@@ -1,8 +1,7 @@
 """Build the body-part region map Cummy uses to split a wearer's full-body overlay into parts.
 
-Every pixel of the Bibo UV atlas belongs to exactly one regional part (Full Body has no region: it uses the whole
-image). The map is seeded from the shipped overlays in Cummy/Assets (run tools/build-assets.py first), so each
-part's region sits where its art does:
+Every pixel of the Bibo UV atlas belongs to exactly one regional part. The map is seeded from the shipped overlays
+in Cummy/Assets (run tools/build-assets.py first), so each part's region sits where its art does:
 
     python tools/build-regions.py generate
 

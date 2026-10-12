@@ -58,6 +58,7 @@ public sealed class Plugin : IDalamudPlugin
     public Plugin()
     {
         Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        if (Configuration.Migrate()) Configuration.Save();
 
         layers = new LayerState(Configuration);
         drip = new DripService(Configuration, layers);
