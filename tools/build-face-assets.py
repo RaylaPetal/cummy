@@ -1,39 +1,50 @@
-"""Convert the face-paint texture in Textures/Finished into the facial overlays Cummy ships.
+"""Convert the staged face-paint art in Textures/Finished/Face into the Face overlay Cummy ships.
 
-    python tools/build-face-assets.py ["<face-paint png>"]
+    python tools/build-face-assets.py import "<Coomface v1.0>/options (face paint 9)"
+    python tools/build-face-assets.py
 
-The source (default Textures/Finished/cum_decal_4 v1.1.png) is in the game's face-paint (decal) layout, as worn in
-face paint 4: no alpha, black background, the brightness is both the coverage and the shading. Forehead art sits in
-the upper half, mouth art in the lower half. This writes Cummy/Assets/<partId>/ for Forehead and Mouth:
-  diffuse.png  RGBA at OUT_SIZE. Alpha ramps with brightness from a thin film at the faint edges to about
-               ALPHA_MAX in the thick strands, so skin shows through the thin goo. The colour keeps the source's
+The art is Coomface v1.0's face paint 9, whose three options nest: Chin, Chin+Forehead and Face are Cummy's Face
+stages 1, 2 and 3. `import` decodes the options' `_decal_9.tex` (DXT1/DXT3) to Textures/Finished/Face/Face - Stage N.png
+(Textures/ is not tracked, so this records where they came from). The build then reads those PNGs: game face-paint
+(decal) layout, no alpha, black background, the brightness is both the coverage and the shading.
+
+It writes Cummy/Assets/mo/ (Face keeps Mouth's wire id, which is also its asset folder):
+  diffuse.png  RGBA at OUT_SIZE, from stage 3. Alpha ramps with brightness from a thin film at the faint edges to about
+               THICK_ALPHA in the thick strands, so skin shows through the thin goo. The colour keeps the source's
                shading (darker in the creases, bright on the ridges, a faintly warm white), as the body art's colour
                does: dividing the brightness out of the colour, as this script once did, turns every pixel the same
                white and the layer reads as flat paint.
   normal.png   relief from the brightness taken as height, with the diffuse alpha, so the game's lighting and the
                compositor's gloss catch the strands
-plus Cummy/Assets/face-regions.png, which splits a wearer's full-face image into the facial parts: every face-paint
-pixel belongs to exactly one part (8-bit greyscale, pixel = Cummy's BodyPart number), grown outward from each part's
-art; and Textures/Regions/face-preview.png, both parts over grey with their regions tinted, for a quick look.
+  stages.png   8-bit greyscale, pixel = the first stage (1-3) that covers it, 0 = no art. Cummy shows stage N as the
+               diffuse where stages.png is 1..N, as for the staged body parts (tools/build-assets.py).
+plus Textures/Regions/face-preview.png, the three stages over grey, for a quick look.
 
 Cummy maps these onto each wearer's own face at composite time. Needs Pillow.
 """
+import io
+import struct
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "Textures" / "Finished" / "cum_decal_4 v1.1.png"
-TARGET = ROOT / "Cummy" / "Assets"
+SOURCE = ROOT / "Textures" / "Finished" / "Face"
+TARGET = ROOT / "Cummy" / "Assets" / "mo"
 PREVIEW = ROOT / "Textures" / "Regions" / "face-preview.png"
 
-# Part id -> BodyPart value, top (forehead) to bottom (mouth) of the face-paint layout.
-PARTS = {"fh": 10, "mo": 11}
+STAGES = 3
+# Coomface option folder -> stage, for `import`.
+IMPORT_OPTIONS = {"chin": 1, "chin+forehead": 2, "face": 3}
+IMPORT_TEX = Path("chara") / "common" / "texture" / "decal_face" / "_decal_9.tex"
 
 OUT_SIZE = 1024
 # Brightness at or below this is the export's background noise (a faint frame), not art.
 NOISE = 12
+# Stage n's coverage may stick out of stage n+1's by at most this many pixels at OUT_SIZE (the Coomface options differ
+# by a few anti-aliasing specks: about 31 px at 256 px). Those pixels are dropped from stage n.
+MAX_STRAY = 1200
 
 # The shipped body art looks right in game, so the facial art copies its statistics: the source's brightness order is
 # kept, but alpha and colour are remapped so their distributions match the body art's (quantile matching).
@@ -51,6 +62,41 @@ TINT = (255, 250, 242)
 # Relief: brightness blurred by HEIGHT_BLUR is the height; RELIEF scales the slope into the normal's red/green.
 HEIGHT_BLUR = 2.5
 RELIEF = 2.0
+
+# .tex format -> (DDS FourCC, bytes per 4x4 block).
+TEX_FORMATS = {0x3420: (b"DXT1", 8), 0x3430: (b"DXT3", 16), 0x3431: (b"DXT5", 16)}
+TEX_HEADER = 80
+
+
+def stage_path(n: int) -> Path:
+    return SOURCE / f"Face - Stage {n}.png"
+
+
+def decode_tex(path: Path) -> Image.Image:
+    """The first mip of a block-compressed game .tex, through a DDS header so Pillow can decode it."""
+    data = path.read_bytes()
+    fmt, w, h = struct.unpack_from("<IHH", data, 4)
+    if fmt not in TEX_FORMATS:
+        raise ValueError(f"{path}: unsupported .tex format {fmt:#x}")
+    fourcc, block = TEX_FORMATS[fmt]
+    size = max(1, w // 4) * max(1, h // 4) * block
+    header = struct.pack("<4sIIIIIII44sIIIIIIIIIIIII", b"DDS ", 124, 0x81007, h, w, size, 0, 1, b"\0" * 44,
+                         32, 4, struct.unpack("<I", fourcc)[0], 0, 0, 0, 0, 0, 0x1000, 0, 0, 0, 0)
+    return Image.open(io.BytesIO(header + data[TEX_HEADER:TEX_HEADER + size])).convert("RGB")
+
+
+def import_options(options: Path) -> int:
+    SOURCE.mkdir(parents=True, exist_ok=True)
+    for folder, n in IMPORT_OPTIONS.items():
+        tex = options / folder / IMPORT_TEX
+        if not tex.is_file():
+            print(f"missing {tex}", file=sys.stderr)
+            return 1
+        img = decode_tex(tex)
+        img.save(stage_path(n))
+        covered = brightness(img).point(lambda v: 255 if v > NOISE else 0).histogram()[255]
+        print(f"{folder} -> {stage_path(n).name}: {img.size[0]}x{img.size[1]}, {covered} px of art")
+    return 0
 
 
 def smoothstep(t: float) -> float:
@@ -92,7 +138,7 @@ def quantile_of(hist: list[int]) -> list[float]:
 def diffuse_from(level: Image.Image, body: Image.Image) -> Image.Image:
     """RGBA art whose alpha and colour follow the shipped body art's distributions, in the order of <level>'s
     brightness (thick goo is the most opaque and brightest). Every pixel above NOISE gets some alpha, so coverage
-    (and the region split built from it) is exactly the source's art."""
+    is exactly the source's art."""
     covered = level.point(lambda v: 0 if v <= NOISE else v)
     src_hist = covered.histogram()
     body_alpha = body.getchannel("A")
@@ -144,87 +190,67 @@ def alpha_stats(alpha: Image.Image) -> str:
     return f"max {top}, p50 {picks[50]}, p90 {picks[90]}, p99 {picks[99]}"
 
 
-def split_row(alpha: Image.Image) -> int:
-    """The emptiest row in the middle third: the gap between the forehead and mouth art."""
-    w, h = alpha.size
-    px = alpha.load()
-    rows = range(h // 3, 2 * h // 3)
-    return min(rows, key=lambda y: (sum(1 for x in range(w) if px[x, y]), abs(y - h // 2)))
+def stage_map(levels: list[Image.Image], diffuse_alpha: Image.Image) -> Image.Image:
+    """stages.png: the first stage covering each pixel. Art covered by no stage's coverage (the last stage's own
+    edges after resampling) is the last stage; stage n's specks outside stage n+1 are dropped from stage n."""
+    masks = [level.point(lambda v: 255 if v > NOISE else 0) for level in levels]
+    for n in range(STAGES - 1, 0, -1):            # innermost last: each mask clipped to the (clipped) next one
+        stray = ImageChops.subtract(masks[n - 1], masks[n]).histogram()[255]
+        if stray > MAX_STRAY:
+            raise ValueError(f"stage {n} has {stray} px outside stage {n + 1}; stages must nest")
+        print(f"stage {n}: {stray} px outside stage {n + 1} dropped")
+        masks[n - 1] = ImageChops.darker(masks[n - 1], masks[n])
+    stages = diffuse_alpha.point(lambda v: STAGES if v else 0)
+    for n in range(STAGES - 1, 0, -1):
+        stages.paste(n, mask=ImageChops.darker(masks[n - 1], diffuse_alpha.point(lambda v: 255 if v else 0)))
+    return stages
 
 
-def regions(coverage: dict[int, Image.Image]) -> Image.Image:
-    """BodyPart value per pixel: each part's art, grown outward until every pixel is claimed."""
-    size = next(iter(coverage.values())).size
-    labels = Image.new("L", size, 0)                 # value + 1; 0 = unclaimed
-    for value, alpha in coverage.items():
-        labels.paste(value + 1, mask=alpha.point(lambda v: 255 if v else 0))
-    grow = ImageFilter.MaxFilter(3)
-    while labels.histogram()[0]:
-        grown = labels.filter(grow)
-        if grown.histogram()[0] == labels.histogram()[0]:
-            raise RuntimeError("region growth stalled")
-        labels = Image.composite(grown, labels, labels.point(lambda v: 255 if v == 0 else 0))
-    for value, alpha in coverage.items():            # art keeps its own part even where two parts' art touch
-        labels.paste(value + 1, mask=alpha.point(lambda v: 255 if v else 0))
-    return labels.point(lambda v: v - 1)
-
-
-def main() -> int:
-    if len(sys.argv) > 2:
-        print(__doc__, file=sys.stderr)
-        return 1
-    source = Path(sys.argv[1]) if len(sys.argv) == 2 else SOURCE
-    if not source.is_file():
-        print(f"missing {source}", file=sys.stderr)
-        return 1
-
-    if not BODY_REFERENCE.is_file():
-        print(f"missing {BODY_REFERENCE}", file=sys.stderr)
+def build() -> int:
+    missing = [p for p in (*(stage_path(n) for n in range(1, STAGES + 1)), BODY_REFERENCE) if not p.is_file()]
+    if missing:
+        for p in missing:
+            print(f"missing {p}", file=sys.stderr)
+        print("run `import` first for the stage PNGs", file=sys.stderr)
         return 1
     body = Image.open(BODY_REFERENCE).convert("RGBA")
 
-    art = Image.open(source).convert("RGB").resize((OUT_SIZE, OUT_SIZE), Image.Resampling.LANCZOS)
-    level = brightness(art)
-    diffuse = diffuse_from(level, body)
-    normal = relief_normal(level, diffuse.getchannel("A"))
-    cut = split_row(diffuse.getchannel("A"))
-    halves = {"fh": (0, 0, OUT_SIZE, cut), "mo": (0, cut, OUT_SIZE, OUT_SIZE)}
+    levels = [brightness(Image.open(stage_path(n)).convert("RGB").resize((OUT_SIZE, OUT_SIZE), Image.Resampling.LANCZOS))
+              for n in range(1, STAGES + 1)]
+    diffuse = diffuse_from(levels[-1], body)
+    normal = relief_normal(levels[-1], diffuse.getchannel("A"))
+    stages = stage_map(levels, diffuse.getchannel("A"))
 
-    sheet = Image.new("RGBA", (OUT_SIZE * 2, OUT_SIZE), (90, 90, 90, 255))
-    coverage = {}
-    for i, (part_id, value) in enumerate(PARTS.items()):
-        box = halves[part_id]
-        part = Image.new("RGBA", diffuse.size, (0, 0, 0, 0))
-        part.paste(diffuse.crop(box), box[:2])
-        if not part.getchannel("A").getbbox():
-            print(f"{part_id}: no art on its side of row {cut}", file=sys.stderr)
-            return 1
-        part_normal = Image.new("RGBA", normal.size, (127, 127, 255, 0))
-        part_normal.paste(normal.crop(box), box[:2])
-        out = TARGET / part_id
-        out.mkdir(parents=True, exist_ok=True)
-        part.save(out / "diffuse.png", optimize=True)
-        part_normal.save(out / "normal.png", optimize=True)
-        coverage[value] = part.getchannel("A")
-        tile = Image.new("RGBA", part.size, (90, 90, 90, 255))
-        tile.alpha_composite(part)
-        sheet.paste(tile, (i * OUT_SIZE, 0))
-        print(f"{source.name} -> {part_id}: alpha {alpha_stats(part.getchannel('A'))}")
-
+    TARGET.mkdir(parents=True, exist_ok=True)
+    diffuse.save(TARGET / "diffuse.png", optimize=True)
+    normal.save(TARGET / "normal.png", optimize=True)
+    stages.save(TARGET / "stages.png", optimize=True)
+    print(f"face: alpha {alpha_stats(diffuse.getchannel('A'))}")
     print(f"body reference: alpha {alpha_stats(body.getchannel('A'))}")
 
-    labels = regions(coverage)
-    labels.save(TARGET / "face-regions.png", optimize=True)
-    tint = Image.new("RGBA", labels.size, (0, 0, 0, 0))
-    tint.paste((60, 140, 255, 60), mask=labels.point(lambda v: 255 if v == PARTS["fh"] else 0))
-    tint.paste((255, 140, 60, 60), mask=labels.point(lambda v: 255 if v == PARTS["mo"] else 0))
-    sheet.alpha_composite(tint, (0, 0))
-    sheet.alpha_composite(tint, (OUT_SIZE, 0))
-    print(f"regions: {TARGET / 'face-regions.png'} (split at row {cut})")
+    sheet = Image.new("RGBA", (OUT_SIZE * STAGES, OUT_SIZE), (90, 90, 90, 255))
+    for n in range(1, STAGES + 1):
+        shown = diffuse.copy()
+        shown.putalpha(ImageChops.multiply(diffuse.getchannel("A"),
+                                           stages.point(lambda v, n=n: 255 if 0 < v <= n else 0)))
+        covered = stages.point(lambda v, n=n: 255 if 0 < v <= n else 0).histogram()[255]
+        print(f"stage {n}: {covered} px")
+        tile = Image.new("RGBA", diffuse.size, (90, 90, 90, 255))
+        tile.alpha_composite(shown)
+        sheet.paste(tile, ((n - 1) * OUT_SIZE, 0))
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
-    sheet.convert("RGB").resize((OUT_SIZE, OUT_SIZE // 2)).save(PREVIEW)
-    print(f"preview: {PREVIEW}")
+    sheet.convert("RGB").resize((OUT_SIZE * STAGES // 2, OUT_SIZE // 2)).save(PREVIEW)
+    print(f"wrote {TARGET}; preview: {PREVIEW}")
     return 0
+
+
+def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "import":
+        return import_options(Path(sys.argv[2]))
+    if len(sys.argv) == 1:
+        return build()
+    print(__doc__, file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

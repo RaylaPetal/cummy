@@ -63,9 +63,14 @@ public static class Protocol
     };
 
     /// Full Body's bit is never sent: it isn't blockable on its own any more (blocking parts limits it), and a cleared
-    /// bit tells older partners they may send it.
+    /// bit tells older partners they may send it. A Face block is also sent as a Forehead block, for older partners
+    /// that have both; on receipt only Face's (Mouth's) bit counts.
     private static string Mask(int mask)
-        => (mask & BodyParts.AllMask & ~BodyPart.FullBody.Bit()).ToString("x", CultureInfo.InvariantCulture);
+    {
+        if (BodyPart.Face.IsBlockedBy(mask)) mask |= BodyPart.Forehead.Bit();
+        else mask &= ~BodyPart.Forehead.Bit();
+        return (mask & BodyParts.AllMask & ~BodyPart.FullBody.Bit()).ToString("x", CultureInfo.InvariantCulture);
+    }
 
     /// Whether a tell belongs to this plugin at all: `cmy` followed by a version number. Such tells are hidden
     /// even when their version or content is not understood.

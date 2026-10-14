@@ -1,6 +1,7 @@
 using Dalamud.Configuration;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace Cummy;
@@ -12,7 +13,7 @@ public class Configuration : IPluginConfiguration
     public const int MinDripMinutes = 2;
     public const int MaxDripMinutes = 30;
 
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 
     public int Version { get; set; } = CurrentVersion;
 
@@ -30,10 +31,12 @@ public class Configuration : IPluginConfiguration
     /// Keyed by the local character's content id: pairings, blocks and layers belong to one character.
     public Dictionary<ulong, CharacterData> Characters { get; set; } = new();
 
-    /// The wearer's own overlay art, for every character on this install: a full-body image (Bibo layout) and a
-    /// full-face image (face-paint layout), each split into its parts by region, and per-part overrides keyed by
-    /// BodyPart id. The images live in the config folder (OverlaySources).
+    /// The wearer's own overlay art, for every character on this install: a full-body image (Bibo layout) split into
+    /// the body parts by region, and per-part overrides keyed by BodyPart id (Face's in the face-paint layout). The
+    /// images live in the config folder (OverlaySources).
     public CustomOverlayRecord CustomFullBody { get; set; } = new();
+
+    /// Before 5: the full-face image, split into Forehead and Mouth. Migrated into Face's override; always empty after.
     public CustomOverlayRecord CustomFullFace { get; set; } = new();
 
     /// With the Proteus plugin loaded, body layers normally go through it as an overlay pack; this keeps Cummy's own
@@ -126,8 +129,76 @@ public class Configuration : IPluginConfiguration
                 data.BlockMask &= ~BodyPart.FullBody.Bit();
                 changed = true;
             }
+            changed |= MigrateFace(data);
+        }
+        changed |= MigrateFaceOverlays();
+        return changed;
+    }
+
+    /// 5: Forehead and Mouth became one staged Face (Mouth's id). Mouth alone loads as stage 1, Forehead (with or
+    /// without Mouth) as stage 2, at the later of their times; a Forehead block becomes a Face block. A Mouth without a
+    /// stage entry can only come from an older version (they never staged it), so this is safe on every load.
+    private static bool MigrateFace(CharacterData data)
+    {
+        var face = BodyPart.Face.Id();
+        var forehead = BodyPart.Forehead.Id();
+        var changed = data.Stages.Remove(forehead);
+        var hadForehead = data.LayeredAt.Remove(forehead, out var foreheadAt);
+        var hadFace = data.LayeredAt.TryGetValue(face, out var faceAt);
+        if (hadForehead || (hadFace && !data.Stages.ContainsKey(face)))
+        {
+            data.LayeredAt[face] = hadFace && (!hadForehead || faceAt > foreheadAt) ? faceAt : foreheadAt;
+            var stage = hadForehead ? 2 : 1;
+            data.Stages[face] = Math.Max(stage, data.Stages.GetValueOrDefault(face));
+            changed = true;
+        }
+        if (BodyPart.Forehead.IsBlockedBy(data.BlockMask))
+        {
+            data.BlockMask = (data.BlockMask | BodyPart.Face.Bit()) & ~BodyPart.Forehead.Bit();
+            changed = true;
         }
         return changed;
+    }
+
+    /// 5: the full-face image and the Forehead override are gone; the first of full-face image, Mouth override and
+    /// Forehead override becomes Face's override (its stored files moved to Face's folder), and the others are deleted.
+    private bool MigrateFaceOverlays()
+    {
+        var face = BodyPart.Face.Id();
+        var forehead = BodyPart.Forehead.Id();
+        if (!CustomFullFace.HasDiffuse && !CustomFullFace.HasNormal && !CustomOverlays.ContainsKey(forehead)) return false;
+
+        var dir = Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "overlays");
+        (string Key, CustomOverlayRecord? Record)[] candidates =
+        [
+            ("face", CustomFullFace),
+            (face, CustomOverlays.GetValueOrDefault(face)),
+            (forehead, CustomOverlays.GetValueOrDefault(forehead)),
+        ];
+        var chosen = candidates.FirstOrDefault(c => c.Record is { HasDiffuse: true });
+        try
+        {
+            if (chosen.Record != null && chosen.Key != face)
+            {
+                var target = Path.Combine(dir, face);
+                if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+                var from = Path.Combine(dir, chosen.Key);
+                if (Directory.Exists(from)) Directory.Move(from, target);
+                CustomOverlays[face] = chosen.Record;
+            }
+            foreach (var key in new[] { "face", forehead })
+            {
+                var stale = Path.Combine(dir, key);
+                if (Directory.Exists(stale)) Directory.Delete(stale, recursive: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "Couldn't move the custom face images; set the Face override again if it's missing.");
+        }
+        CustomOverlays.Remove(forehead);
+        CustomFullFace = new CustomOverlayRecord();
+        return true;
     }
 }
 

@@ -16,8 +16,7 @@ public sealed class DripService : IDisposable
     /// Source -> the parts it drips onto. Hands and feet are sinks; Full Body takes no part.
     private static readonly (BodyPart From, BodyPart[] To)[] Flow =
     [
-        (BodyPart.Forehead, [BodyPart.Mouth]),
-        (BodyPart.Mouth, [BodyPart.Chest]),
+        (BodyPart.Face, [BodyPart.Chest]),
         (BodyPart.Chest, [BodyPart.Stomach, BodyPart.ArmLeft, BodyPart.ArmRight]),
         (BodyPart.ArmLeft, [BodyPart.HandLeft]),
         (BodyPart.ArmRight, [BodyPart.HandRight]),

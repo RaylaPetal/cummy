@@ -89,37 +89,36 @@ public sealed class SettingsWindow : ThemedWindow
         string[] modes = ["They layer me", "They lick me", "They confirm my lick", "Unsolicited confirmation"];
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
         ImGui.Combo("##debugMode", ref debugMode, modes, modes.Length);
-        foreach (var facial in new[] { false, true })
+        ImGuiHelpers.ScaledDummy(4f);
+        using (var table = ImRaii.Table("##debugParts", 2, ImGuiTableFlags.SizingStretchSame))
         {
-            ImGuiHelpers.ScaledDummy(4f);
-            Ui.Heading(facial ? "Face" : "Body");
-            using var table = ImRaii.Table($"##debug{facial}", 2, ImGuiTableFlags.SizingStretchSame);
-            if (!table) continue;
-            foreach (var part in BodyParts.DisplayOrder)
+            if (table)
             {
-                if (part.IsFacial() != facial) continue;
-                ImGui.TableNextColumn();
-                var stage = layers.Stage(part);
-                var shown = stage == 0 ? "" : part.StageCount() > 1 ? $" {stage}/{part.StageCount()}" : " *";
-                if (ImGui.Button($"{part.DisplayName()}{shown}##debug{part.Id()}", new Vector2(-1, 0)))
+                foreach (var part in BodyParts.DisplayOrder)
                 {
-                    switch (debugMode)
+                    ImGui.TableNextColumn();
+                    var stage = layers.Stage(part);
+                    var shown = stage == 0 ? "" : $" {stage}/{part.StageCount()}";
+                    if (ImGui.Button($"{part.DisplayName()}{shown}##debug{part.Id()}", new Vector2(-1, 0)))
                     {
-                        case 0: pairing.SimulateLayerFromPartner(part); break;
-                        case 1: pairing.SimulateLickFromPartner(part); break;
-                        case 2: pairing.SimulateLickConfirmation(part, solicited: true); break;
-                        default: pairing.SimulateLickConfirmation(part, solicited: false); break;
+                        switch (debugMode)
+                        {
+                            case 0: pairing.SimulateLayerFromPartner(part); break;
+                            case 1: pairing.SimulateLickFromPartner(part); break;
+                            case 2: pairing.SimulateLickConfirmation(part, solicited: true); break;
+                            default: pairing.SimulateLickConfirmation(part, solicited: false); break;
+                        }
                     }
+                    if (stage > 0 && ImGui.IsItemHovered())
+                        ImGui.SetTooltip(stage >= part.StageCount() ? "Fully covered" : $"Stage {stage} of {part.StageCount()}: another layer advances it");
                 }
-                if (stage > 0 && ImGui.IsItemHovered())
-                    ImGui.SetTooltip(stage >= part.StageCount() ? "Fully covered" : $"Stage {stage} of {part.StageCount()}: another layer advances it");
-            }
-            // Full Body isn't a part: it can only be layered (one stage on every unblocked body part).
-            if (!facial && debugMode == 0)
-            {
-                ImGui.TableNextColumn();
-                if (ImGui.Button($"{BodyPart.FullBody.DisplayName()}##debug{BodyPart.FullBody.Id()}", new Vector2(-1, 0)))
-                    pairing.SimulateLayerFromPartner(BodyPart.FullBody);
+                // Full Body isn't a part: it can only be layered (one stage on every unblocked part).
+                if (debugMode == 0)
+                {
+                    ImGui.TableNextColumn();
+                    if (ImGui.Button($"{BodyPart.FullBody.DisplayName()}##debug{BodyPart.FullBody.Id()}", new Vector2(-1, 0)))
+                        pairing.SimulateLayerFromPartner(BodyPart.FullBody);
+                }
             }
         }
         ImGuiHelpers.ScaledDummy(4f);
@@ -201,7 +200,7 @@ public sealed class SettingsWindow : ThemedWindow
             configuration.Save();
         }
         ImGuiComponents.HelpMarker("Layered parts drip one stage onto the parts below them every interval (chest onto stomach "
-                                 + "and arms, stomach onto groin and legs, legs onto feet, mouth onto chest...), never past "
+                                 + "and arms, stomach onto groin and legs, legs onto feet, face onto chest...), never past "
                                  + "the stage above. Blocked parts are skipped and stop the drip. Only while you're logged in.");
 
         using (ImRaii.Disabled(!configuration.DripEnabled))
@@ -415,23 +414,18 @@ public sealed class SettingsWindow : ThemedWindow
         Ui.MutedWrapped("Partners can't layer parts you block. They're told when this changes.");
         ImGuiHelpers.ScaledDummy(4f);
 
-        foreach (var facial in new[] { false, true })
+        ImGuiHelpers.ScaledDummy(2f);
+        using var table = ImRaii.Table("##blocked", 2, ImGuiTableFlags.SizingStretchSame);
+        if (!table) return;
+        foreach (var part in BodyParts.DisplayOrder)
         {
-            ImGuiHelpers.ScaledDummy(2f);
-            Ui.Muted(facial ? "Face" : "Body");
-            using var table = ImRaii.Table($"##blocked{facial}", 2, ImGuiTableFlags.SizingStretchSame);
-            if (!table) continue;
-            foreach (var part in BodyParts.DisplayOrder)
+            ImGui.TableNextColumn();
+            var blocked = part.IsBlockedBy(me.BlockMask);
+            if (ImGui.Checkbox($"{part.DisplayName()}##block{part.Id()}", ref blocked))
             {
-                if (part.IsFacial() != facial) continue;
-                ImGui.TableNextColumn();
-                var blocked = part.IsBlockedBy(me.BlockMask);
-                if (ImGui.Checkbox($"{part.DisplayName()}##block{part.Id()}", ref blocked))
-                {
-                    me.BlockMask = blocked ? me.BlockMask | part.Bit() : me.BlockMask & ~part.Bit();
-                    configuration.Save();
-                    pairing.BroadcastBlocks(part);
-                }
+                me.BlockMask = blocked ? me.BlockMask | part.Bit() : me.BlockMask & ~part.Bit();
+                configuration.Save();
+                pairing.BroadcastBlocks(part);
             }
         }
     }
@@ -445,9 +439,8 @@ public sealed class SettingsWindow : ThemedWindow
                       + "art on you; it isn't sent to partners.");
         ImGuiHelpers.ScaledDummy(6f);
 
-        Ui.Heading("Full images");
-        Ui.MutedWrapped("One image each, split into the parts for you. Body art uses the Bibo UV layout; face art "
-                      + "uses the face-paint layout and is mirrored onto both sides of your face.");
+        Ui.Heading("Full-body image");
+        Ui.MutedWrapped("One image in the Bibo UV layout, split into the body parts for you.");
         ImGuiHelpers.ScaledDummy(2f);
         using (var table = ImRaii.Table("##fullImages", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.PadOuterX))
         {
@@ -455,23 +448,21 @@ public sealed class SettingsWindow : ThemedWindow
             {
                 SetupSourceColumns();
                 DrawSourceRow(OverlayTarget.FullBody);
-                DrawSourceRow(OverlayTarget.FullFace);
             }
         }
 
         ImGuiHelpers.ScaledDummy(8f);
         Ui.Heading("Per-part overrides");
-        Ui.MutedWrapped("Replace a single part's art, whether shipped or from a full image.");
-        foreach (var facial in new[] { false, true })
+        Ui.MutedWrapped("Replace a single part's art, whether shipped or from the full-body image. Body parts use the "
+                      + "Bibo UV layout; Face uses the face-paint layout and is mirrored onto both sides of your face. "
+                      + "Each shows only where its current stage has art.");
+        ImGuiHelpers.ScaledDummy(4f);
+        using (var table = ImRaii.Table("##overrides", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.PadOuterX))
         {
-            ImGuiHelpers.ScaledDummy(4f);
-            Ui.Muted(facial ? "Face (face-paint layout)" : "Body (Bibo UV layout)");
-            using var table = ImRaii.Table($"##overrides{facial}", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.PadOuterX);
-            if (!table) continue;
+            if (!table) return;
             SetupSourceColumns();
             foreach (var part in BodyParts.DisplayOrder)
-                if (part.IsFacial() == facial)
-                    DrawSourceRow(OverlayTarget.Of(part));
+                DrawSourceRow(OverlayTarget.Of(part));
         }
     }
 
@@ -543,8 +534,8 @@ public sealed class SettingsWindow : ThemedWindow
             return;
         }
         var fallback = "Shipped art";
-        if (target.Part is { } part && overlaySources.State(OverlayTarget.FullFor(part)) == CustomState.Custom)
-            fallback = part.IsFacial() ? "Full-face image" : "Full-body image";
+        if (target.Part is { } part && !part.IsFacial() && overlaySources.State(OverlayTarget.FullBody) == CustomState.Custom)
+            fallback = "Full-body image";
         switch (state)
         {
             case CustomState.Custom:

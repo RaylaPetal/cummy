@@ -145,15 +145,8 @@ public sealed class MainWindow : ThemedWindow
 
         Ui.Heading("Your layers");
         var data = layers.Current!;
-        var grouped = layered.Any(p => p.IsFacial()) && layered.Any(p => !p.IsFacial());
-        bool? group = null;
         foreach (var part in layered)
         {
-            if (grouped && group != part.IsFacial())
-            {
-                group = part.IsFacial();
-                Ui.Muted(part.IsFacial() ? "Face" : "Body");
-            }
             Ui.Card($"layer{part.Id()}", CardStyle.Normal, () =>
             {
                 ImGui.AlignTextToFramePadding();

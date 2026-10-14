@@ -304,9 +304,9 @@ public sealed class PairingService : IDisposable
         return true;
     }
 
-    /// A partner's `lkd`: only for a lick we sent them of that part, still waiting. Then it lands on our mouth: a
-    /// clean mouth gets layered, a covered one spills a stage down the chest; licking their mouth (a kiss) cleans
-    /// ours instead. A blocked mouth (or chest, for the spill) takes nothing.
+    /// A partner's `lkd`: only for a lick we sent them of that part, still waiting. Then it lands on our face: a
+    /// clean face gets layered at stage 1, a covered one (any stage; licks never advance it) spills a stage down the
+    /// chest; licking their face (a kiss) cleans ours instead. A blocked face (or chest, for the spill) takes nothing.
     private void OnLickConfirmed(CharacterData me, string peerKey, string name, BodyPart part)
     {
         if (!pendingLicks.Remove((peerKey, part), out var expires) || expires < DateTime.UtcNow)
@@ -316,29 +316,29 @@ public sealed class PairingService : IDisposable
         }
 
         var partName = part.DisplayName().ToLowerInvariant();
-        if (part == BodyPart.Mouth)
+        if (part == BodyPart.Face)
         {
-            layers.Clean(BodyPart.Mouth);
-            Notifier.Info($"You kissed {name} - both your mouths are clean.");
+            layers.Clean(BodyPart.Face);
+            Notifier.Info($"You kissed {name} - both your faces are clean.");
             return;
         }
-        if (BodyPart.Mouth.IsBlockedBy(me.BlockMask))
+        if (BodyPart.Face.IsBlockedBy(me.BlockMask))
         {
             Notifier.Info($"You licked {name}'s {partName} clean.");
             return;
         }
-        if (!layers.IsLayered(BodyPart.Mouth))
+        if (!layers.IsLayered(BodyPart.Face))
         {
-            layers.Layer(BodyPart.Mouth);
-            Notifier.Info($"You licked {name}'s {partName} clean - it's on your mouth now.");
+            layers.Layer(BodyPart.Face);
+            Notifier.Info($"You licked {name}'s {partName} clean - it's on your face now.");
             return;
         }
 
-        layers.RestartDrying(BodyPart.Mouth);
+        layers.RestartDrying(BodyPart.Face);
         var spilled = !BodyPart.Chest.IsBlockedBy(me.BlockMask)
                       && layers.Layer(BodyPart.Chest) is LayerOutcome.Layered or LayerOutcome.Advanced;
         Notifier.Info(spilled
-            ? $"You licked {name}'s {partName} clean - your mouth is full, so it spills down your chest."
+            ? $"You licked {name}'s {partName} clean - your face is already covered, so it spills down your chest."
             : $"You licked {name}'s {partName} clean.");
     }
 
@@ -378,9 +378,9 @@ public sealed class PairingService : IDisposable
     /// A Full Body layer: one layer on every unblocked regional part, with one notification and one moodle.
     private void ApplyFullBody(CharacterData me, string name, string world)
     {
-        if ((BodyParts.RegionalMask & ~me.BlockMask) == 0)
+        if ((BodyParts.LayerTargetsMask & ~me.BlockMask) == 0)
         {
-            Plugin.Log.Information($"Ignored a Full Body layer from {name}@{world}: every body part is blocked.");
+            Plugin.Log.Information($"Ignored a Full Body layer from {name}@{world}: every part is blocked.");
             return;
         }
         var (changed, stage) = layers.LayerAll(me.BlockMask);

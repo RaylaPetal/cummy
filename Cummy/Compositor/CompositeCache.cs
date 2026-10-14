@@ -37,7 +37,6 @@ public sealed class CompositeCache
     private readonly Dictionary<(string Map, int W, int H), byte[]?> regions = new();
     private readonly Dictionary<string, (string Stamp, FaceModel? Model)> faces = new(StringComparer.OrdinalIgnoreCase);
     private readonly string regionMapPath;
-    private readonly string faceRegionMapPath;
 
     public object Lock { get; } = new();
 
@@ -45,10 +44,9 @@ public sealed class CompositeCache
 
     public bool IsEmpty => bases.Count == 0 && overlays.Count == 0 && images.Count == 0 && regions.Count == 0 && faces.Count == 0;
 
-    public CompositeCache(string regionMapPath, string faceRegionMapPath)
+    public CompositeCache(string regionMapPath)
     {
         this.regionMapPath = regionMapPath;
-        this.faceRegionMapPath = faceRegionMapPath;
     }
 
     public void Clear()
@@ -94,11 +92,11 @@ public sealed class CompositeCache
         return model;
     }
 
-    /// Frees cached art that a source change made stale: one part's, or for a full image every part split from it.
+    /// Frees cached art that a source change made stale: one part's, or for the full-body image every body part.
     /// Memory only - entries are keyed by source stamp, so stale ones are never used.
     public void Forget(OverlayTarget target)
     {
-        foreach (var key in overlays.Keys.Where(k => target.Part is { } p ? k.Part == p : k.Part.IsFacial() == target.Face).ToList())
+        foreach (var key in overlays.Keys.Where(k => target.Part is { } p ? k.Part == p : !k.Part.IsFacial()).ToList())
             overlays.Remove(key);
         images.Clear();
     }
@@ -173,16 +171,10 @@ public sealed class CompositeCache
             for (int i = 3; i < rgba.Length; i += 4) rgba[i] = c[i];
         }
 
-        // A part's share of a full image: nothing outside its region.
-        var map = source.Origin switch
+        // A body part's share of the full-body image: nothing outside its region.
+        if (source.Origin == OverlayOrigin.FullBody)
         {
-            OverlayOrigin.FullBody => regionMapPath,
-            OverlayOrigin.FullFace => faceRegionMapPath,
-            _ => null,
-        };
-        if (map != null)
-        {
-            if (Labels(map, img.Width, img.Height) is not { } labels) return null;
+            if (Labels(regionMapPath, img.Width, img.Height) is not { } labels) return null;
             var own = (byte)part;
             for (int i = 0; i < labels.Length; i++)
                 if (labels[i] != own) rgba[i * 4 + 3] = 0;

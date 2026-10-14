@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.2.0.0/Cummy-2.2.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.2.0.0/Cummy-2.2.0.0.zip",
-    "Changelog": "- Full Body is no longer its own part: it layers every body part you haven't blocked one stage, so the first Full Body is a light coat all over, the second takes everything to stage 2, and the third to stage 3. One notification and one moodle per Full Body.\n- Full Body no longer has its own row, art or block. A Full Body you had on becomes stage 1 on your clean body parts.",
+    "Changelog": "- Forehead and Mouth are now one Face part with new full-face art in three stages: chin and mouth, then the forehead, then the whole face.\n- Face is listed with the body parts, and Full Body now layers your face too.\n- Licks land on your face, and licking a partner's face is a kiss. Faces drip onto the chest.\n- Your saved face layers, blocks and custom face art carry over: Mouth becomes Face stage 1, Forehead becomes stage 2. The separate full-face custom image is now the Face override.",
     "LastUpdate": "1791773266"
   }
 ]

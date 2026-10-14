@@ -27,7 +27,7 @@ public sealed class CompositorService : IDisposable
     private const int ModPriority = 9999;
 
     /// Bump when compositing or the shipped art changes, so cached outputs from an older build are not reused.
-    private const int CompositeVersion = 9;
+    private const int CompositeVersion = 10;
 
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(750);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
@@ -141,7 +141,7 @@ public sealed class CompositorService : IDisposable
         this.overlaySources = overlaySources;
         this.configuration = configuration;
         this.proteus = proteus;
-        cache = new CompositeCache(overlaySources.RegionMapPath, overlaySources.FaceRegionMapPath);
+        cache = new CompositeCache(overlaySources.RegionMapPath);
         pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers);
 
         // Older builds wrote their textures here and published a temporary mod; both are superseded.

@@ -69,7 +69,7 @@ public sealed class LayerState : IDisposable
         return stage == 0 ? LayerOutcome.Layered : LayerOutcome.Advanced;
     }
 
-    /// A Full Body layer: one <see cref="Layer"/> step on every regional part not in <paramref name="blockMask"/>, in
+    /// A Full Body layer: one <see cref="Layer"/> step on every part (Face included) not in <paramref name="blockMask"/>, in
     /// one commit (one recomposite). Returns the parts that changed and the stage they all reached, or null for
     /// <c>Stage</c> when they ended at different stages. No parts changed: nothing was layerable or all were full.
     public (IReadOnlyList<BodyPart> Changed, int? Stage) LayerAll(int blockMask)
@@ -77,7 +77,7 @@ public sealed class LayerState : IDisposable
         if (Current is not { } data) return ([], null);
         var changed = new List<BodyPart>();
         var stages = new HashSet<int>();
-        foreach (var part in BodyParts.Regional)
+        foreach (var part in BodyParts.LayerTargets)
         {
             var stage = Stage(part);
             if (part.IsBlockedBy(blockMask) || stage >= part.StageCount()) continue;

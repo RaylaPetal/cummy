@@ -7,23 +7,19 @@ using StbImageSharp;
 
 namespace Cummy.Compositor;
 
-public enum OverlayOrigin { Shipped, FullBody, FullFace, Part }
+public enum OverlayOrigin { Shipped, FullBody, Part }
 
-/// What a custom image belongs to: one part's override, or one of the two full images (the full-body image in the
-/// Bibo layout, split into body parts; the full-face image in the face-paint layout, split into facial parts).
-public readonly record struct OverlayTarget(BodyPart? Part, bool Face = false)
+/// What a custom image belongs to: one part's override (Face's in the face-paint layout), or the full-body image
+/// (Bibo layout, split into the body parts).
+public readonly record struct OverlayTarget(BodyPart? Part)
 {
     public static readonly OverlayTarget FullBody = new(null);
-    public static readonly OverlayTarget FullFace = new(null, true);
 
     public static OverlayTarget Of(BodyPart part) => new(part);
 
-    /// The full image a part is split from when it has no override.
-    public static OverlayTarget FullFor(BodyPart part) => part.IsFacial() ? FullFace : FullBody;
+    public string Key => Part?.Id() ?? "full";
 
-    public string Key => Part?.Id() ?? (Face ? "face" : "full");
-
-    public string DisplayName => Part?.DisplayName() ?? (Face ? "Full face" : "Full body");
+    public string DisplayName => Part?.DisplayName() ?? "Full body";
 }
 
 /// Where one part's art comes from for a composite. <see cref="Normal"/> null = the part adds no relief.
@@ -43,8 +39,8 @@ public sealed record OverlaySource(OverlayOrigin Origin, string Diffuse, string?
 
 public enum CustomState { None, Custom, Missing }
 
-/// The wearer's own overlay art: a full-body and a full-face image, each split into its parts by a shipped region map,
-/// and per-part overrides. Picks a part's source (override → full image split → shipped), validates and stores
+/// The wearer's own overlay art: a full-body image, split into the body parts by a shipped region map, and per-part
+/// overrides. Picks a part's source (override → full-body split for body parts → shipped), validates and stores
 /// imported images in the config folder, and resets them. Framework thread only, except the import work it starts itself.
 public sealed class OverlaySources
 {
@@ -73,14 +69,11 @@ public sealed class OverlaySources
     /// Which part each pixel of the Bibo atlas belongs to (tools/build-regions.py).
     public string RegionMapPath => Path.Combine(assetsDir, "regions.png");
 
-    /// Which facial part each pixel of the face-paint layout belongs to (tools/build-face-assets.py).
-    public string FaceRegionMapPath => Path.Combine(assetsDir, "face-regions.png");
-
     private string Dir(OverlayTarget target) => Path.Combine(customDir, target.Key);
 
     public CustomOverlayRecord? Record(OverlayTarget target)
         => target.Part is { } p ? config.CustomOverlays.GetValueOrDefault(p.Id())
-         : target.Face ? config.CustomFullFace : config.CustomFullBody;
+         : config.CustomFullBody;
 
     public CustomState State(OverlayTarget part)
     {
@@ -100,8 +93,8 @@ public sealed class OverlaySources
     {
         var dir = Path.Combine(assetsDir, part.Id());
         var source = Custom(OverlayTarget.Of(part))
-                     // Body parts split the full-body image (Bibo layout), facial parts the full-face image (face-paint layout).
-                     ?? Custom(OverlayTarget.FullFor(part))
+                     // Body parts split the full-body image (Bibo layout); Face has only its override (face-paint layout).
+                     ?? (part.IsFacial() ? null : Custom(OverlayTarget.FullBody))
                      ?? new OverlaySource(OverlayOrigin.Shipped, Path.Combine(dir, DiffuseFile), Path.Combine(dir, NormalFile), "shipped");
         if (part.StageCount() == 1) return source;
         return source with { StageMap = Path.Combine(dir, StagesFile), Stage = Math.Clamp(stage, 1, part.StageCount()) };
@@ -117,8 +110,8 @@ public sealed class OverlaySources
         if (part.Part != null)
             return new OverlaySource(OverlayOrigin.Part, diffuse, normal, stamp);
         // A full image's split depends on its region map too.
-        stamp += $"+regions:{Stamp(part.Face ? FaceRegionMapPath : RegionMapPath)}";
-        return new OverlaySource(part.Face ? OverlayOrigin.FullFace : OverlayOrigin.FullBody, diffuse, normal, stamp);
+        stamp += $"+regions:{Stamp(RegionMapPath)}";
+        return new OverlaySource(OverlayOrigin.FullBody, diffuse, normal, stamp);
     }
 
     private static string Stamp(string path)
@@ -160,7 +153,7 @@ public sealed class OverlaySources
             }
             else
             {
-                record = part.Face ? config.CustomFullFace : config.CustomFullBody;
+                record = config.CustomFullBody;
             }
             if (normal)
             {
@@ -241,7 +234,6 @@ public sealed class OverlaySources
             Plugin.Log.Warning(ex, $"Couldn't delete {dir}");
         }
         if (part.Part is { } p) config.CustomOverlays.Remove(p.Id());
-        else if (part.Face) config.CustomFullFace = new CustomOverlayRecord();
         else config.CustomFullBody = new CustomOverlayRecord();
         errors.Remove(part.Key);
         config.Save();
