@@ -48,8 +48,8 @@ public class Configuration : IPluginConfiguration
     public bool ShowQuickLayerButton { get; set; } = true;
     public bool LockQuickLayerButton { get; set; } = false;
 
-    /// Washing off (both opt-in): clean everything on starting to swim or dive, and after RainWashMinutes outdoors in
-    /// the rain.
+    /// Washing off (both opt-in): layers rinse off one stage at a time while swimming, diving or in a bath ("Clean in
+    /// water"), and one stage per RainWashMinutes outdoors in the rain.
     public bool WashInWater { get; set; } = false;
     public bool WashInRain { get; set; } = false;
     public int RainWashMinutes { get; set; } = 2;
@@ -58,15 +58,15 @@ public class Configuration : IPluginConfiguration
     /// drying off or either washing-off option on, only time, water and a partner's lick clean you.
     public bool ManualCleanAllowed => !DryOffEnabled && !WashInWater && !WashInRain;
 
-    /// How the wearer gets clean while <see cref="ManualCleanAllowed"/> is false, e.g. "Dries off, or washes off when
-    /// swimming or diving." Null while manual cleaning is allowed.
+    /// How the wearer gets clean while <see cref="ManualCleanAllowed"/> is false, e.g. "Dries off over time, or washes
+    /// off in water." Null while manual cleaning is allowed.
     public string? HowYouGetClean()
     {
         if (ManualCleanAllowed) return null;
         var water = (WashInWater, WashInRain) switch
         {
-            (true, true) => "washes off when swimming, diving or in the rain",
-            (true, false) => "washes off when swimming or diving",
+            (true, true) => "washes off in water or the rain",
+            (true, false) => "washes off in water",
             (false, true) => "washes off in the rain",
             _ => null,
         };

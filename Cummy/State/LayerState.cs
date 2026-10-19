@@ -129,6 +129,28 @@ public sealed class LayerState : IDisposable
         return true;
     }
 
+    /// Washing off (WashOffService): every layered part one stage down, a part at stage 1 cleaned, in one commit.
+    /// Drying times are left alone, so a rinse never buys a part more time. False when nothing was layered.
+    public bool Rinse()
+    {
+        if (Current is not { } data || data.LayeredAt.Count == 0) return false;
+        foreach (var part in Snapshot())
+        {
+            var stage = Stage(part);
+            if (stage <= 1)
+            {
+                data.LayeredAt.Remove(part.Id());
+                data.Stages.Remove(part.Id());
+            }
+            else
+            {
+                data.Stages[part.Id()] = stage - 1;
+            }
+        }
+        Commit();
+        return true;
+    }
+
     /// Restart one layered part's drying time without changing how it looks (no <see cref="Changed"/>).
     public void RestartDrying(BodyPart part)
     {

@@ -227,26 +227,27 @@ public sealed class SettingsWindow : ThemedWindow
         Ui.Heading("Washing off");
         Ui.MutedWrapped("While either is on, you can't clean yourself by hand.");
         var water = configuration.WashInWater;
-        if (ImGui.Checkbox("Clean when swimming or diving", ref water))
+        if (ImGui.Checkbox("Clean in water", ref water))
         {
             configuration.WashInWater = water;
             configuration.Save();
         }
-        ImGuiComponents.HelpMarker("Everything is cleaned when you start swimming or diving. Wading in shallow water doesn't count.");
+        ImGuiComponents.HelpMarker("While you swim, dive, or sit in a bathtub, shower or hot spring at a house, your layers "
+                                 + "rinse off one stage every few seconds. Wading in shallow water doesn't count.");
         var rain = configuration.WashInRain;
         if (ImGui.Checkbox("Clean in the rain", ref rain))
         {
             configuration.WashInRain = rain;
             configuration.Save();
         }
-        ImGuiComponents.HelpMarker("Everything is cleaned after this long outdoors in rain, showers or thunderstorms. "
-                                 + "Indoors and duties don't count; the time pauses between showers and resets after "
-                                 + "10 minutes without rain.");
+        ImGuiComponents.HelpMarker("Your layers rinse off one stage for each stretch of this long outdoors in rain, "
+                                 + "showers or thunderstorms. Indoors and duties don't count; the time pauses between "
+                                 + "showers and resets after 10 minutes without rain.");
         using (ImRaii.Disabled(!configuration.WashInRain))
         {
             var rainMinutes = Math.Clamp(configuration.RainWashMinutes, 1, 10);
             ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
-            if (ImGui.SliderInt("##rainMinutes", ref rainMinutes, 1, 10, rainMinutes == 1 ? "%d minute of rain" : "%d minutes of rain"))
+            if (ImGui.SliderInt("##rainMinutes", ref rainMinutes, 1, 10, rainMinutes == 1 ? "%d minute of rain per stage" : "%d minutes of rain per stage"))
             {
                 configuration.RainWashMinutes = Math.Clamp(rainMinutes, 1, 10);
                 configuration.Save();
