@@ -12,8 +12,9 @@ public sealed record IncomingInvite(string Name, string World, string Nonce, int
 }
 
 /// Tell-handshake pairing (invite → accept, unpair either way) and the layer and lick commands that only paired peers
-/// may send, from close by (<see cref="Proximity"/>). Every outgoing tell here is the direct result of a user click,
-/// except the `lkd` reply to a partner's lick that cleaned something.
+/// may send, from close by (<see cref="Proximity"/>). Outgoing tells are the direct result of a user click, except the
+/// `lkd` reply to a partner's lick that cleaned something and layers another plugin requests through
+/// <see cref="Cummy.Ipc.CummyApi"/>.
 public sealed class PairingService : IDisposable
 {
     public static readonly TimeSpan InviteLifetime = TimeSpan.FromMinutes(5);
@@ -39,6 +40,9 @@ public sealed class PairingService : IDisposable
 
     /// Raised when a partner's layer landed on a clean part (not for blocked or already-covered parts, nor on login).
     public event Action<BodyPart>? LayerAccepted;
+
+    /// Raised with <see cref="LayerAccepted"/>, with who the layer came from: (part, source name, source world).
+    public event Action<BodyPart, string, string>? LayerReceived;
 
     public PairingService(Configuration config, LayerState layers, ChatSender sender, ChatListener listener)
     {
@@ -372,7 +376,11 @@ public sealed class PairingService : IDisposable
                 break;
         }
         // Every visible change, so the wearer's moodle (and its VFX) lands with each new stage too.
-        if (outcome is LayerOutcome.Layered or LayerOutcome.Advanced) LayerAccepted?.Invoke(part);
+        if (outcome is LayerOutcome.Layered or LayerOutcome.Advanced)
+        {
+            LayerAccepted?.Invoke(part);
+            LayerReceived?.Invoke(part, name, world);
+        }
     }
 
     /// A Full Body layer: one layer on every unblocked regional part, with one notification and one moodle.
@@ -393,6 +401,7 @@ public sealed class PairingService : IDisposable
             ? $"{name} layered your whole body, now at stage {stage} of {BodyParts.MaxStages}."
             : $"{name} layered your whole body.");
         LayerAccepted?.Invoke(BodyPart.FullBody);
+        LayerReceived?.Invoke(BodyPart.FullBody, name, world);
     }
 
     private void AddPeer(string name, string world, int blockMask)

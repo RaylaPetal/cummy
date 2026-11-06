@@ -54,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
     private readonly ContextMenuService contextMenu;
+    private readonly CummyApi api;
 
     public Plugin()
     {
@@ -71,8 +72,9 @@ public sealed class Plugin : IDalamudPlugin
         compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus);
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
+        api = new CummyApi(pairing);
 
-        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip);
+        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api);
         pickerWindow = new LayerPickerWindow(pairing);
         mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi);
         inviteWindow = new InviteWindow(pairing);
@@ -103,6 +105,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
 
         contextMenu.Dispose();
+        api.Dispose();
         washOff.Dispose();
         drip.Dispose();
         moodleService.Dispose();

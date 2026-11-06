@@ -7,8 +7,8 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 
 namespace Cummy.Messaging;
 
-/// The one place that can transmit chat (the Oathbound discipline). Every send comes from a user click: one press,
-/// one tell per recipient. It only ever emits `/tell Name Surname@World cmy1 ...`; anything else is refused, so a
+/// The one place that can transmit chat (the Oathbound discipline). Sends come from a user click (one press, one tell
+/// per recipient), a reply to a partner's lick, or a layer another plugin requests over IPC. It only ever emits `/tell Name Surname@World cmy1 ...`; anything else is refused, so a
 /// bug can never put text into the active chat channel.
 public sealed class ChatSender : IDisposable
 {

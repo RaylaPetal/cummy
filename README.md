@@ -37,6 +37,18 @@ dotnet build Cummy.slnx
 
 Requires the .NET 10 SDK and Dalamud installed at least once. Shipped overlays are generated from `Textures/Finished` with `tools/build-assets.py` (see that file), including each staged part's stage map from `Textures/Finished/Staged Parts`. The body-part region map that splits a wearer's full-body overlay (`Cummy/Assets/regions.png`) is built from those overlays with `tools/build-regions.py`: `generate`, correct `Textures/Regions/regions.png` by hand, then `check` (see that file). Rerun `check` whenever the shipped overlays change. The staged Face overlay (`Cummy/Assets/mo`) is built from Coomface v1.0's face paint 9 (its Chin, Chin+Forehead and Face options are stages 1-3) with `tools/build-face-assets.py`: `import "<Coomface v1.0>/options (face paint 9)"` once to decode the options into `Textures/Finished/Face`, then run it without arguments (see that file).
 
+## Plugin API
+
+Other plugins can use Cummy through Dalamud IPC, on the framework thread:
+
+| IPC | Signature | Purpose |
+| --- | --- | --- |
+| `Cummy.ApiVersion` | `() -> int` | The API version, currently 1 |
+| `Cummy.SendLayer` | `(string name, string world, string partId) -> string` | Layers a paired partner with the normal layer tell. Returns `sent`, `not-paired`, `out-of-range`, `blocked`, `queue-full` or `unknown-part`, and sends nothing unless `sent` |
+| `Cummy.OnLayerReceived` | event `(string partId, string sourceName, string sourceWorld)` | A partner's layer changed a stage on you. Not raised for blocked or full parts, or for drips |
+
+Part IDs are the wire IDs in `Cummy/BodyPart.cs`, such as `ch` for Chest and `fb` for Full Body. `sent` means the tell was queued. The partner's Cummy still applies its own pairing, block and range rules when it arrives.
+
 ## Credits and licence
 
 Cummy is licensed under the **GNU AGPL v3** (see `LICENSE.md`).

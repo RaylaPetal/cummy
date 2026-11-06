@@ -29,16 +29,18 @@ public sealed class SettingsWindow : ThemedWindow
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
     private readonly DripService drip;
+    private readonly CummyApi api;
     private readonly FileDialogManager fileDialog = new();
     private string? lastImageDir;
     /// The look being edited: shown while a control is dragged, saved and applied only when it is released.
     private LayerLook? lookDraft;
 
     public SettingsWindow(Configuration configuration, LayerState layers, PairingService pairing, OverlaySources overlaySources,
-                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip)
+                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip, CummyApi api)
         : base("Cummy Settings###CummySettings")
     {
         this.drip = drip;
+        this.api = api;
         this.compositor = compositor;
         this.moodles = moodles;
         this.moodleService = moodleService;
@@ -142,9 +144,38 @@ public sealed class SettingsWindow : ThemedWindow
                 ? $"{peer.Key}: {y:0.0}y (layer {(y <= Proximity.LayerRange ? "ok" : "no")}, lick {(y <= Proximity.LickRange ? "ok" : "no")})"
                 : $"{peer.Key}: not loaded");
         }
+
+        ImGuiHelpers.ScaledDummy(4f);
+        DrawDebugApi();
+    }
+
+    /// Call Cummy.SendLayer as another plugin would, and show what its OnLayerReceived subscribers get. The layer
+    /// buttons above in "They layer me" mode raise the event.
+    private void DrawDebugApi()
+    {
+        Ui.Heading("Plugin API");
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##debugApiTarget", "Name Surname@World", ref debugApiTarget, 64);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(60 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##debugApiPart", "part id", ref debugApiPart, 8);
+        ImGui.SameLine();
+        if (ImGui.Button("SendLayer##debugApi"))
+        {
+            var at = debugApiTarget.IndexOf('@');
+            debugApiOutcome = at > 0
+                ? api.SendLayer(debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim(), debugApiPart.Trim())
+                : "enter Name Surname@World";
+        }
+        if (debugApiOutcome.Length > 0) Ui.Muted($"Outcome: {debugApiOutcome}");
+        Ui.Muted("OnLayerReceived:");
+        foreach (var line in api.DebugLog) Ui.Muted(line);
     }
 
     private int debugMode;
+    private string debugApiTarget = "";
+    private string debugApiPart = "ch";
+    private string debugApiOutcome = "";
 #endif
 
     // ── General ──────────────────────────────────────────────────────────────
