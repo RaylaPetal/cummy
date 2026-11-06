@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "2.4.0.0",
+    "AssemblyVersion": "2.5.0.0",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -17,9 +17,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.4.0.0/Cummy-2.4.0.0.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.4.0.0/Cummy-2.4.0.0.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.0/Cummy-2.5.0.0.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.0/Cummy-2.5.0.0.zip",
     "Changelog": "- Other plugins can now work with Cummy through a new plugin API: they can layer a paired partner, and be told when a partner's layer lands on you. Your partner's pairing, blocks and range rules still apply.",
-    "LastUpdate": "1792433795"
+    "LastUpdate": "1793995460"
   }
 ]
