@@ -43,10 +43,11 @@ Other plugins can use Cummy through Dalamud IPC, on the framework thread:
 
 | IPC | Signature | Purpose |
 | --- | --- | --- |
-| `Cummy.ApiVersion` | `() -> int` | The API version, currently 2 |
+| `Cummy.ApiVersion` | `() -> int` | The API version, currently 3 |
 | `Cummy.SendLayer` | `(string name, string world, string partId) -> string` | Layers a paired partner with the normal layer tell. Returns `sent`, `not-paired`, `out-of-range`, `blocked`, `queue-full` or `unknown-part`, and sends nothing unless `sent` |
 | `Cummy.OnLayerReceived` | event `(string partId, string sourceName, string sourceWorld)` | A partner's layer changed a stage on you. Not raised for blocked or full parts, or for drips |
 | `Cummy.GetLayerCount` | `() -> int` | Version 2. The layer stages you're wearing, summed over layered parts. 0 when clean or logged out |
+| `Cummy.LayerSelf` | `(string partId, string sourceName, string sourceWorld) -> string` | Version 3. Layers you as if that player had, with no pairing and no tell, under your own blocks and stages. For plugins that decide the layer themselves, such as Corruption on a scene partner's climax. Returns `layered`, `advanced`, `full`, `blocked`, `unknown-part` (Full Body included) or `no-character` |
 | `Cummy.OnLayersChanged` | event `(int count)` | Version 2. Raised with the new count whenever layers are added, drip, rinse, are cleaned or dry off, and on login |
 
 Part IDs are the wire IDs in `Cummy/BodyPart.cs`, such as `ch` for Chest and `fb` for Full Body. `sent` means the tell was queued. The partner's Cummy still applies its own pairing, block and range rules when it arrives.

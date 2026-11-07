@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.1/Cummy-2.5.0.1.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.1/Cummy-2.5.0.1.zip",
-    "Changelog": "- The plugin API can now tell other plugins how many layers you're wearing, and lets them know whenever that changes.",
+    "Changelog": "- Other plugins can now layer you directly, for example when a scene they run decides it. Your own blocks and stages still apply, and you're notified as usual.",
     "LastUpdate": "1794047560"
   }
 ]

@@ -19,11 +19,14 @@ namespace Cummy.Ipc;
 /// layered parts; 0 when clean or logged out.</item>
 /// <item><c>Cummy.OnLayersChanged</c> event (count) (version 2): raised with the new count whenever layers are added,
 /// drip, rinse, clean or dry off, and on login.</item>
+/// <item><c>Cummy.LayerSelf</c> (partId, sourceName, sourceWorld) -> outcome (version 3): layers the local player as if
+/// that player had, with no pairing and no tell, under the wearer's own blocks and stages. For a plugin that decided
+/// the layer itself. Returns layered, advanced, full, blocked, unknown-part (Full Body included) or no-character.</item>
 /// </list>
 /// Framework thread: SendLayer reads the object table.
 public sealed class CummyApi : IDisposable
 {
-    public const int Version = 2;
+    public const int Version = 3;
 
     public const string Sent = "sent";
     public const string NotPaired = "not-paired";
@@ -31,6 +34,10 @@ public sealed class CummyApi : IDisposable
     public const string Blocked = "blocked";
     public const string QueueFull = "queue-full";
     public const string UnknownPart = "unknown-part";
+    public const string Layered = "layered";
+    public const string Advanced = "advanced";
+    public const string Full = "full";
+    public const string NoCharacter = "no-character";
 
     private const string OnLayerReceivedName = "Cummy.OnLayerReceived";
     private const string OnLayersChangedName = "Cummy.OnLayersChanged";
@@ -42,6 +49,7 @@ public sealed class CummyApi : IDisposable
     private readonly ICallGateProvider<string, string, string, object> onLayerReceived;
     private readonly ICallGateProvider<int> getLayerCount;
     private readonly ICallGateProvider<int, object> onLayersChanged;
+    private readonly ICallGateProvider<string, string, string, string> layerSelf;
 
     public CummyApi(PairingService pairing, LayerState layers)
     {
@@ -58,6 +66,8 @@ public sealed class CummyApi : IDisposable
         getLayerCount.RegisterFunc(GetLayerCount);
         onLayersChanged = Plugin.PluginInterface.GetIpcProvider<int, object>(OnLayersChangedName);
         layers.Changed += OnLayerStateChanged;
+        layerSelf = Plugin.PluginInterface.GetIpcProvider<string, string, string, string>("Cummy.LayerSelf");
+        layerSelf.RegisterFunc(LayerSelf);
 
 #if DEBUG
         debugSubscriber = Plugin.PluginInterface.GetIpcSubscriber<string, string, string, object>(OnLayerReceivedName);
@@ -77,6 +87,7 @@ public sealed class CummyApi : IDisposable
         debugCountSubscriber.Unsubscribe(OnDebugLayersChanged);
 #endif
         layers.Changed -= OnLayerStateChanged;
+        layerSelf.UnregisterFunc();
         getLayerCount.UnregisterFunc();
         pairing.LayerReceived -= OnPairingLayerReceived;
         sendLayer.UnregisterFunc();
@@ -99,6 +110,14 @@ public sealed class CummyApi : IDisposable
         => part == BodyPart.FullBody
             ? (BodyParts.LayerTargetsMask & ~blockMask) == 0
             : part.IsBlockedBy(blockMask);
+
+    /// One of layered, advanced, full, blocked, unknown-part or no-character.
+    public string LayerSelf(string partId, string sourceName, string sourceWorld)
+    {
+        if (!BodyParts.TryParseId(partId, out var part) || part == BodyPart.FullBody) return UnknownPart;
+        var name = string.IsNullOrWhiteSpace(sourceName) ? "Someone" : sourceName.Trim();
+        return pairing.LayerSelf(part, name, sourceWorld?.Trim() ?? "");
+    }
 
     /// Layer stages worn: each layered part counts its stage (1 for single-stage parts).
     public int GetLayerCount() => layers.Snapshot().Sum(layers.Stage);

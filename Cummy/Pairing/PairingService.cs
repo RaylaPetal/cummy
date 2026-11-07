@@ -250,6 +250,20 @@ public sealed class PairingService : IDisposable
         }
     }
 
+    /// For another plugin that decided a layer itself (Corruption, when a scene partner's climax counts): layers the local
+    /// player as if <paramref name="name"/>@<paramref name="world"/> had, with no pairing and no tell. The wearer's blocks,
+    /// stages, notification and events are the same as for a partner's layer. Full Body isn't accepted.
+    /// Returns layered, advanced, full, blocked or no-character.
+    public string LayerSelf(BodyPart part, string name, string world)
+    {
+        if (Me is not { } me) return "no-character";
+        if (part.IsBlockedBy(me.BlockMask)) return "blocked";
+        var before = layers.Stage(part);
+        ApplyLayer(me, name, world, part);
+        var after = layers.Stage(part);
+        return after == before ? "full" : before == 0 ? "layered" : "advanced";
+    }
+
 #if DEBUG
     /// Debug builds only: behave as if a paired partner's `cmy1 lay` tell for <paramref name="part"/> had arrived.
     /// The real wire text is built and parsed, then handled exactly like a verified tell (blocks included); only the

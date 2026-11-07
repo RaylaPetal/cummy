@@ -167,6 +167,14 @@ public sealed class SettingsWindow : ThemedWindow
                 ? api.SendLayer(debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim(), debugApiPart.Trim())
                 : "enter Name Surname@World";
         }
+        ImGui.SameLine();
+        if (ImGui.Button("LayerSelf##debugApi"))
+        {
+            var at = debugApiTarget.IndexOf('@');
+            debugApiOutcome = at > 0
+                ? api.LayerSelf(debugApiPart.Trim(), debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim())
+                : api.LayerSelf(debugApiPart.Trim(), "Debug Partner", "Debug");
+        }
         if (debugApiOutcome.Length > 0) Ui.Muted($"Outcome: {debugApiOutcome}");
         Ui.Muted($"GetLayerCount: {api.GetLayerCount()}   Last OnLayersChanged: {api.DebugLastLayersChanged}");
         Ui.Muted("OnLayerReceived:");
