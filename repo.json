@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.0/Cummy-2.5.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.5.0.0/Cummy-2.5.0.0.zip",
-    "Changelog": "- Other plugins can now work with Cummy through a new plugin API: they can layer a paired partner, and be told when a partner's layer lands on you. Your partner's pairing, blocks and range rules still apply.",
+    "Changelog": "- The plugin API can now tell other plugins how many layers you're wearing, and lets them know whenever that changes.",
     "LastUpdate": "1793995460"
   }
 ]

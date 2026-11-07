@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Cummy.Pairing;
+using Cummy.State;
 using Dalamud.Plugin.Ipc;
 
 namespace Cummy.Ipc;
@@ -13,11 +15,15 @@ namespace Cummy.Ipc;
 /// <see cref="BodyParts.Id"/>.</item>
 /// <item><c>Cummy.OnLayerReceived</c> event (partId, sourceName, sourceWorld): a partner's layer changed a stage on the
 /// wearer. Not raised for blocked or already full parts, nor for drips.</item>
+/// <item><c>Cummy.GetLayerCount</c> () -> int (version 2): the layer stages the logged-in character wears, summed over
+/// layered parts; 0 when clean or logged out.</item>
+/// <item><c>Cummy.OnLayersChanged</c> event (count) (version 2): raised with the new count whenever layers are added,
+/// drip, rinse, clean or dry off, and on login.</item>
 /// </list>
 /// Framework thread: SendLayer reads the object table.
 public sealed class CummyApi : IDisposable
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     public const string Sent = "sent";
     public const string NotPaired = "not-paired";
@@ -27,15 +33,20 @@ public sealed class CummyApi : IDisposable
     public const string UnknownPart = "unknown-part";
 
     private const string OnLayerReceivedName = "Cummy.OnLayerReceived";
+    private const string OnLayersChangedName = "Cummy.OnLayersChanged";
 
     private readonly PairingService pairing;
+    private readonly LayerState layers;
     private readonly ICallGateProvider<int> apiVersion;
     private readonly ICallGateProvider<string, string, string, string> sendLayer;
     private readonly ICallGateProvider<string, string, string, object> onLayerReceived;
+    private readonly ICallGateProvider<int> getLayerCount;
+    private readonly ICallGateProvider<int, object> onLayersChanged;
 
-    public CummyApi(PairingService pairing)
+    public CummyApi(PairingService pairing, LayerState layers)
     {
         this.pairing = pairing;
+        this.layers = layers;
 
         apiVersion = Plugin.PluginInterface.GetIpcProvider<int>("Cummy.ApiVersion");
         apiVersion.RegisterFunc(() => Version);
@@ -43,10 +54,18 @@ public sealed class CummyApi : IDisposable
         sendLayer.RegisterFunc(SendLayer);
         onLayerReceived = Plugin.PluginInterface.GetIpcProvider<string, string, string, object>(OnLayerReceivedName);
         pairing.LayerReceived += OnPairingLayerReceived;
+        getLayerCount = Plugin.PluginInterface.GetIpcProvider<int>("Cummy.GetLayerCount");
+        getLayerCount.RegisterFunc(GetLayerCount);
+        onLayersChanged = Plugin.PluginInterface.GetIpcProvider<int, object>(OnLayersChangedName);
+        layers.Changed += OnLayerStateChanged;
 
 #if DEBUG
         debugSubscriber = Plugin.PluginInterface.GetIpcSubscriber<string, string, string, object>(OnLayerReceivedName);
         debugSubscriber.Subscribe(OnDebugLayerReceived);
+        debugLayerSelf = Plugin.PluginInterface.GetIpcProvider<string, string>("Cummy.DebugLayerSelf");
+        debugLayerSelf.RegisterFunc(DebugLayerSelf);
+        debugCountSubscriber = Plugin.PluginInterface.GetIpcSubscriber<int, object>(OnLayersChangedName);
+        debugCountSubscriber.Subscribe(OnDebugLayersChanged);
 #endif
     }
 
@@ -54,7 +73,11 @@ public sealed class CummyApi : IDisposable
     {
 #if DEBUG
         debugSubscriber.Unsubscribe(OnDebugLayerReceived);
+        debugLayerSelf.UnregisterFunc();
+        debugCountSubscriber.Unsubscribe(OnDebugLayersChanged);
 #endif
+        layers.Changed -= OnLayerStateChanged;
+        getLayerCount.UnregisterFunc();
         pairing.LayerReceived -= OnPairingLayerReceived;
         sendLayer.UnregisterFunc();
         apiVersion.UnregisterFunc();
@@ -77,6 +100,11 @@ public sealed class CummyApi : IDisposable
             ? (BodyParts.LayerTargetsMask & ~blockMask) == 0
             : part.IsBlockedBy(blockMask);
 
+    /// Layer stages worn: each layered part counts its stage (1 for single-stage parts).
+    public int GetLayerCount() => layers.Snapshot().Sum(layers.Stage);
+
+    private void OnLayerStateChanged() => onLayersChanged.SendMessage(GetLayerCount());
+
     private void OnPairingLayerReceived(BodyPart part, string sourceName, string sourceWorld)
         => onLayerReceived.SendMessage(part.Id(), sourceName, sourceWorld);
 
@@ -85,6 +113,24 @@ public sealed class CummyApi : IDisposable
 
     private readonly ICallGateSubscriber<string, string, string, object> debugSubscriber;
     private readonly List<string> debugLog = new();
+    private readonly ICallGateProvider<string, string> debugLayerSelf;
+
+    /// Debug builds only, for another plugin to test against: layers this character as if a paired partner had sent the
+    /// tell, through the same handling as a real one. OnLayerReceived reports it as coming from "Debug Partner@Debug".
+    private string DebugLayerSelf(string partId)
+    {
+        if (!BodyParts.TryParseId(partId, out var part)) return UnknownPart;
+        pairing.SimulateLayerFromPartner(part);
+        return Sent;
+    }
+
+    private readonly ICallGateSubscriber<int, object> debugCountSubscriber;
+
+    /// Debug builds only: the last OnLayersChanged count and when it arrived, through the real gate.
+    public string DebugLastLayersChanged { get; private set; } = "none yet";
+
+    private void OnDebugLayersChanged(int count)
+        => DebugLastLayersChanged = $"{count} at {DateTime.Now:HH:mm:ss}";
 
     /// Debug builds only: the latest OnLayerReceived messages, as a subscriber sees them through the real gate.
     public IReadOnlyList<string> DebugLog => debugLog;

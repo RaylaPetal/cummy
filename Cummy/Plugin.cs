@@ -72,7 +72,7 @@ public sealed class Plugin : IDalamudPlugin
         compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus);
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
-        api = new CummyApi(pairing);
+        api = new CummyApi(pairing, layers);
 
         settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api);
         pickerWindow = new LayerPickerWindow(pairing);

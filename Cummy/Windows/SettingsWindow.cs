@@ -168,6 +168,7 @@ public sealed class SettingsWindow : ThemedWindow
                 : "enter Name Surname@World";
         }
         if (debugApiOutcome.Length > 0) Ui.Muted($"Outcome: {debugApiOutcome}");
+        Ui.Muted($"GetLayerCount: {api.GetLayerCount()}   Last OnLayersChanged: {api.DebugLastLayersChanged}");
         Ui.Muted("OnLayerReceived:");
         foreach (var line in api.DebugLog) Ui.Muted(line);
     }
