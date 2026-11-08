@@ -124,6 +124,8 @@ public sealed class SettingsWindow : ThemedWindow
             }
         }
         ImGuiHelpers.ScaledDummy(4f);
+        DrawDebugStranger();
+        ImGuiHelpers.ScaledDummy(4f);
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "Clean everything"))
             layers.CleanAll();
         ImGui.SameLine();
@@ -181,7 +183,28 @@ public sealed class SettingsWindow : ThemedWindow
         foreach (var line in api.DebugLog) Ui.Muted(line);
     }
 
+    /// Act as any `Name@World` (paired or not, blacklisted or not) through the real access checks: Public mode, pairing
+    /// and the blacklist decide, as for a real tell. Range isn't checked.
+    private void DrawDebugStranger()
+    {
+        Ui.Heading("As someone else");
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##debugStranger", "Name Surname@World", ref debugStranger, 64);
+        var parsed = TryParseNameWorld(debugStranger, out var name, out var world);
+        using (ImRaii.Disabled(!parsed))
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Layer my chest##debugStranger")) pairing.SimulateLayerFrom(name, world, BodyPart.Chest);
+            ImGui.SameLine();
+            if (ImGui.Button("Invite me##debugStranger")) pairing.SimulateInviteFrom(name, world);
+        }
+        Ui.Muted(pairing.IsBlacklisted(name, world) ? "They're blacklisted."
+                 : pairing.FindPeer(name, world) != null ? "They're a partner."
+                 : $"They're unpaired; you're in {(pairing.PublicLayering ? "Public" : "Pairing")} mode.");
+    }
+
     private int debugMode;
+    private string debugStranger = "";
     private string debugApiTarget = "";
     private string debugApiPart = "ch";
     private string debugApiOutcome = "";
@@ -192,6 +215,9 @@ public sealed class SettingsWindow : ThemedWindow
     private void DrawGeneral()
     {
         ImGuiHelpers.ScaledDummy(4f);
+        DrawAccess();
+        ImGuiHelpers.ScaledDummy(8f);
+
         Ui.Heading("Compositing");
         var own = configuration.UseOwnCompositorWithProteus;
         if (ImGui.Checkbox("Always use Cummy's own compositor", ref own))
@@ -305,14 +331,86 @@ public sealed class SettingsWindow : ThemedWindow
             configuration.ShowQuickLayerButton = show;
             configuration.Save();
         }
-        ImGuiComponents.HelpMarker("A small droplet button, shown while a paired partner is nearby: click it to pick a "
-                                 + "partner (your target, if paired) and layer them. Drag it to move it.");
+        ImGuiComponents.HelpMarker("A small droplet button, shown while someone is nearby: click it to pick a player "
+                                 + "(your target, if nearby) and layer, lick or pair with them. Drag it to move it.");
         var locked = configuration.LockQuickLayerButton;
         if (ImGui.Checkbox("Lock position", ref locked))
         {
             configuration.LockQuickLayerButton = locked;
             configuration.Save();
         }
+    }
+
+    /// Who can layer me: Pairing or Public mode, and the blacklist. Both belong to the logged-in character.
+    private void DrawAccess()
+    {
+        Ui.Heading("Who can layer me");
+        if (layers.Current is null)
+        {
+            Ui.Muted("Log in to a character to change this.");
+            return;
+        }
+
+        var isPublic = pairing.PublicLayering;
+        if (ImGui.RadioButton("Pairing", !isPublic)) pairing.SetPublicLayering(false);
+        ImGui.SameLine();
+        Ui.Muted("Only partners you've paired with can layer or lick you, and you them.");
+        if (ImGui.RadioButton("Public", isPublic)) pairing.SetPublicLayering(true);
+        ImGui.SameLine();
+        Ui.Muted("Anyone with Cummy nearby can layer or lick you, without pairing.");
+        if (isPublic)
+        {
+            using (ImRaii.PushColor(ImGuiCol.Text, Ui.Warning))
+                ImGui.TextWrapped("Your blocks and the usual range still apply. Layering someone who isn't paired sends "
+                                  + "them a tell without knowing if they have Cummy: without it, they see the raw message.");
+        }
+
+        ImGuiHelpers.ScaledDummy(4f);
+        var entries = pairing.BlacklistEntries;
+        Ui.Heading("Blacklist", entries.Count);
+        Ui.MutedWrapped("Blacklisted players can never layer you, lick you or invite you, in either mode. "
+                        + "Blacklisting a partner unpairs them.");
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        var submitted = ImGui.InputTextWithHint("##blacklistAdd", "Name Surname@World", ref blacklistInput, 64,
+                                                ImGuiInputTextFlags.EnterReturnsTrue);
+        var valid = TryParseNameWorld(blacklistInput, out var name, out var world);
+        ImGui.SameLine();
+        using (ImRaii.Disabled(!valid))
+        {
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Ban, "Add") || (submitted && valid))
+            {
+                pairing.Blacklist(name, world);
+                blacklistInput = "";
+            }
+        }
+        if (!valid && blacklistInput.Trim().Length > 0) Ui.Muted("Enter it as Name Surname@World.");
+
+        BlacklistEntry? remove = null;
+        foreach (var entry in entries)
+        {
+            Ui.Card($"blacklist{entry.Key}", CardStyle.Normal, () =>
+            {
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextUnformatted(entry.Name);
+                ImGui.SameLine();
+                Ui.Muted($"@{entry.World}");
+                Ui.AlignRight(Ui.IconButtonWidth(FontAwesomeIcon.Times));
+                if (ImGuiComponents.IconButton($"unblacklist{entry.Key}", FontAwesomeIcon.Times)) remove = entry;
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Remove {entry.Name} from your blacklist");
+            });
+        }
+        if (remove != null) pairing.Unblacklist(remove);
+    }
+
+    private string blacklistInput = "";
+
+    /// `Name Surname@World`, split at the last `@`, both sides trimmed and non-empty.
+    private static bool TryParseNameWorld(string text, out string name, out string world)
+    {
+        var at = text.LastIndexOf('@');
+        name = at > 0 ? text[..at].Trim() : "";
+        world = at > 0 ? text[(at + 1)..].Trim() : "";
+        return name.Length > 0 && world.Length > 0;
     }
 
     /// The moodle put on you when a partner's layer lands (its VFX is the one set on it in Moodles).

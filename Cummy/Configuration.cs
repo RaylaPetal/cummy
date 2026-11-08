@@ -220,8 +220,32 @@ public class CharacterData
     /// The moodle Cummy put on this character and has not removed yet; Empty when none. Only this one is ever removed.
     public Guid AppliedMoodleId { get; set; } = Guid.Empty;
 
+    /// Public mode: anyone with Cummy nearby may layer or lick this character without pairing (blocks and range still
+    /// apply). Off is Pairing mode: only paired peers may.
+    public bool PublicLayering { get; set; }
+
+    /// Players who may never layer, lick or invite this character, in either mode, until removed.
+    public List<BlacklistEntry> Blacklist { get; set; } = new();
+
     public PeerRecord? FindPeer(string name, string world)
         => Peers.Find(p => p.Matches(name, world));
+
+    public bool IsBlacklisted(string name, string world)
+        => Blacklist.Exists(b => b.Matches(name, world));
+}
+
+[Serializable]
+public class BlacklistEntry
+{
+    public string Name { get; set; } = string.Empty;
+    public string World { get; set; } = string.Empty;
+    public DateTime AddedAtUtc { get; set; }
+
+    public string Key => $"{Name}@{World}";
+
+    public bool Matches(string name, string world)
+        => string.Equals(Name, name, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(World, world, StringComparison.OrdinalIgnoreCase);
 }
 
 [Serializable]

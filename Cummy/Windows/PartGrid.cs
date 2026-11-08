@@ -16,12 +16,18 @@ internal static class PartGrid
 {
     private static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(500);
     private static DateTime scannedAt = DateTime.MinValue;
-    private static List<PeerRecord> nearby = [];
+    private static List<NearbyPlayer> nearby = [];
+
+    /// Unpaired players' stand-in records, kept between scans so one stranger stays the same object while nearby.
+    /// Never stored in the configuration; they carry no known blocks.
+    private static readonly Dictionary<string, PeerRecord> strangers = new(StringComparer.OrdinalIgnoreCase);
 
     /// One button per part in one list (Face first), plus Full Body last when layering (it isn't a part, so it can't
     /// be licked). Blocked parts are disabled unless <paramref name="lick"/> (blocks only stop layering);
-    /// everything is disabled unless <paramref name="enabled"/>. A click calls <paramref name="send"/>.
-    public static void Draw(PeerRecord? peer, bool enabled, Action<BodyPart> send, string id, bool lick = false)
+    /// everything is disabled unless <paramref name="enabled"/>. A click calls <paramref name="send"/>. A stranger's
+    /// (<paramref name="isPartner"/> false) blocks are unknown, so nothing is shown blocked for them.
+    public static void Draw(PeerRecord? peer, bool enabled, Action<BodyPart> send, string id, bool lick = false,
+                            bool isPartner = true)
     {
         var size = new Vector2(130 * ImGuiHelpers.GlobalScale, 0);
         ImGuiHelpers.ScaledDummy(2f);
@@ -32,7 +38,7 @@ internal static class PartGrid
         foreach (var part in parts)
         {
             ImGui.TableNextColumn();
-            var blocked = !lick && peer != null && IsBlocked(part, peer.BlockMask);
+            var blocked = !lick && isPartner && peer != null && IsBlocked(part, peer.BlockMask);
             using (ImRaii.Disabled(!enabled || peer == null || blocked))
             {
                 if (ImGui.Button(blocked ? $"{part.DisplayName()} (blocked)##{id}{part.Id()}" : $"{part.DisplayName()}##{id}{part.Id()}", size))
@@ -60,27 +66,46 @@ internal static class PartGrid
     /// Whether <paramref name="peer"/> is within <paramref name="range"/> yalms of you.
     public static bool InRange(PeerRecord peer, float range) => Proximity.Within(peer, range);
 
-    /// The paired peers within layering range, rescanned at most every 500 ms.
-    public static IReadOnlyList<PeerRecord> PartnersInRange(PairingService pairing)
+    /// The players within layering range other than you, without blacklisted ones: paired partners first (their own
+    /// records, so blocks stay current), then everyone else, each by name. Rescanned at most every 500 ms.
+    public static IReadOnlyList<NearbyPlayer> NearbyPlayers(PairingService pairing)
     {
         if (DateTime.UtcNow - scannedAt < ScanInterval) return nearby;
         scannedAt = DateTime.UtcNow;
-        var me = Plugin.ObjectTable.LocalPlayer;
-        var peers = pairing.Peers;
-        var found = new List<PeerRecord>();
-        if (me != null && peers.Count > 0)
+        var found = new List<NearbyPlayer>();
+        if (Plugin.ObjectTable.LocalPlayer is { } me)
         {
             foreach (var obj in Plugin.ObjectTable)
             {
-                if (obj is not IPlayerCharacter pc) continue;
+                if (obj is not IPlayerCharacter pc || pc.GameObjectId == me.GameObjectId) continue;
                 if (Vector3.Distance(me.Position, pc.Position) > Proximity.LayerRange) continue;
                 var name = pc.Name.TextValue;
                 var world = pc.HomeWorld.Value.Name.ExtractText();
-                if (peers.FirstOrDefault(p => p.Matches(name, world)) is { } peer && !found.Contains(peer))
-                    found.Add(peer);
+                if (name.Length == 0 || world.Length == 0 || pairing.IsBlacklisted(name, world)) continue;
+                if (found.Exists(n => n.Target.Matches(name, world))) continue;
+                if (pairing.FindPeer(name, world) is { } peer)
+                {
+                    found.Add(new NearbyPlayer(peer, true));
+                    continue;
+                }
+                var key = $"{name}@{world}";
+                if (!strangers.TryGetValue(key, out var stranger))
+                    strangers[key] = stranger = new PeerRecord { Name = name, World = world };
+                found.Add(new NearbyPlayer(stranger, false));
             }
         }
-        nearby = found.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        // Forget strangers who left, so the cache doesn't grow.
+        foreach (var key in strangers.Keys.Where(k => !found.Exists(n => !n.IsPartner && n.Target.Key.Equals(k, StringComparison.OrdinalIgnoreCase))).ToList())
+            strangers.Remove(key);
+        nearby = found.OrderByDescending(n => n.IsPartner)
+                      .ThenBy(n => n.Target.Name, StringComparer.OrdinalIgnoreCase)
+                      .ToList();
         return nearby;
     }
+
+    /// Forces the next <see cref="NearbyPlayers"/> call to rescan (after pairing or blacklisting someone).
+    public static void Invalidate() => scannedAt = DateTime.MinValue;
 }
+
+/// Someone within layering range: a paired partner's own record, or an unpaired player's stand-in.
+internal sealed record NearbyPlayer(PeerRecord Target, bool IsPartner);

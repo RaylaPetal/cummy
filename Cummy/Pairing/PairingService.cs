@@ -11,8 +11,9 @@ public sealed record IncomingInvite(string Name, string World, string Nonce, int
     public string Key => $"{Name}@{World}";
 }
 
-/// Tell-handshake pairing (invite → accept, unpair either way) and the layer and lick commands that only paired peers
-/// may send, from close by (<see cref="Proximity"/>). Outgoing tells are the direct result of a user click, except the
+/// Tell-handshake pairing (invite → accept, unpair either way) and the layer and lick commands that paired peers, or
+/// anyone while the wearer is in Public mode, may send from close by (<see cref="Proximity"/>); the blacklist refuses a
+/// player everything (<see cref="MayAct"/>). Outgoing tells are the direct result of a user click, except the
 /// `lkd` reply to a partner's lick that cleaned something and layers another plugin requests through
 /// <see cref="Cummy.Ipc.CummyApi"/>.
 public sealed class PairingService : IDisposable
@@ -61,6 +62,28 @@ public sealed class PairingService : IDisposable
 
     public PeerRecord? FindPeer(string name, string world) => Me?.FindPeer(name, world);
 
+    /// Public mode on the logged-in character: unpaired players may layer and lick it, and it may layer them.
+    public bool PublicLayering => Me?.PublicLayering ?? false;
+
+    public IReadOnlyList<BlacklistEntry> BlacklistEntries
+        => Me?.Blacklist ?? (IReadOnlyList<BlacklistEntry>)Array.Empty<BlacklistEntry>();
+
+    public bool IsBlacklisted(string name, string world) => Me?.IsBlacklisted(name, world) ?? false;
+
+    /// Whether `name@world` may layer or lick <paramref name="me"/>: never when blacklisted; otherwise a paired peer
+    /// always, and anyone in Public mode. Range is checked separately.
+    private static bool MayAct(CharacterData me, string name, string world)
+        => !me.IsBlacklisted(name, world) && (me.PublicLayering || me.FindPeer(name, world) is not null);
+
+    /// A target for the send paths: the paired peer, else (only in Public mode) a stranger that is never stored, with
+    /// no known blocks. Null for a blacklisted player or a stranger in Pairing mode.
+    public PeerRecord? TargetFor(string name, string world)
+    {
+        if (Me is not { } me || me.IsBlacklisted(name, world)) return null;
+        if (me.FindPeer(name, world) is { } peer) return peer;
+        return me.PublicLayering ? new PeerRecord { Name = name, World = world } : null;
+    }
+
     public IReadOnlyList<IncomingInvite> PendingInvites
     {
         get
@@ -103,6 +126,35 @@ public sealed class PairingService : IDisposable
     }
 
     public void DeclineInvite(IncomingInvite invite) => incoming.Remove(invite);
+
+    public void SetPublicLayering(bool on)
+    {
+        if (Me is not { } me || me.PublicLayering == on) return;
+        me.PublicLayering = on;
+        config.Save();
+    }
+
+    /// Refuse `name@world` everything from now on: a partner is unpaired (one `unp`), and invites either way are
+    /// dropped so a late accept can't pair them again.
+    public void Blacklist(string name, string world)
+    {
+        if (Me is not { } me) return;
+        var key = $"{name}@{world}";
+        outgoing.Remove(key);
+        incoming.RemoveAll(i => i.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+        if (me.FindPeer(name, world) is { } peer) Unpair(peer);
+        if (me.IsBlacklisted(name, world)) return;
+        me.Blacklist.Add(new BlacklistEntry { Name = name, World = world, AddedAtUtc = DateTime.UtcNow });
+        config.Save();
+        Notifier.Info($"Blacklisted {key}.");
+    }
+
+    public void Unblacklist(BlacklistEntry entry)
+    {
+        if (Me is not { } me || !me.Blacklist.Remove(entry)) return;
+        config.Save();
+        Notifier.Info($"Removed {entry.Key} from your blacklist.");
+    }
 
     public void Unpair(PeerRecord peer)
     {
@@ -175,6 +227,11 @@ public sealed class PairingService : IDisposable
         switch (message.Verb)
         {
             case Verb.Invite:
+                if (me.IsBlacklisted(name, world))
+                {
+                    Plugin.Log.Information($"Ignored an invite from blacklisted {name}@{world}.");
+                    return;
+                }
                 if (me.FindPeer(name, world) is not null) return;
                 incoming.RemoveAll(i => i.Key.Equals($"{name}@{world}", StringComparison.OrdinalIgnoreCase));
                 incoming.Add(new IncomingInvite(name, world, message.Nonce!, message.BlockMask, DateTime.UtcNow + InviteLifetime));
@@ -215,9 +272,9 @@ public sealed class PairingService : IDisposable
                 break;
 
             case Verb.Layer:
-                if (me.FindPeer(name, world) is null)
+                if (!MayAct(me, name, world))
                 {
-                    Plugin.Log.Information($"Ignored a layer from unpaired {name}@{world}.");
+                    Plugin.Log.Information($"Ignored a layer from {Refused(me, name, world)} {name}@{world}.");
                     return;
                 }
                 if (!Proximity.Within(name, world, Proximity.LayerRange + Proximity.ReceiveSlack))
@@ -229,9 +286,9 @@ public sealed class PairingService : IDisposable
                 break;
 
             case Verb.Lick:
-                if (me.FindPeer(name, world) is null)
+                if (!MayAct(me, name, world))
                 {
-                    Plugin.Log.Information($"Ignored a lick from unpaired {name}@{world}.");
+                    Plugin.Log.Information($"Ignored a lick from {Refused(me, name, world)} {name}@{world}.");
                     return;
                 }
                 if (!Proximity.Within(name, world, Proximity.LickRange + Proximity.ReceiveSlack))
@@ -244,19 +301,29 @@ public sealed class PairingService : IDisposable
                 break;
 
             case Verb.Licked:
-                if (me.FindPeer(name, world) is not { } licked) return;
-                OnLickConfirmed(me, licked.Key, licked.Name, message.Part);
+                if (!MayAct(me, name, world))
+                {
+                    Plugin.Log.Information($"Ignored a lick confirmation from {Refused(me, name, world)} {name}@{world}.");
+                    return;
+                }
+                // Keyed like SendLick's pending entry (PeerRecord.Key), so a stranger's reply matches their own lick.
+                OnLickConfirmed(me, $"{name}@{world}", name, message.Part);
                 break;
         }
     }
 
+    /// Why <see cref="MayAct"/> refused, for the log.
+    private static string Refused(CharacterData me, string name, string world)
+        => me.IsBlacklisted(name, world) ? "blacklisted" : "unpaired";
+
     /// For another plugin that decided a layer itself (Corruption, when a scene partner's climax counts): layers the local
     /// player as if <paramref name="name"/>@<paramref name="world"/> had, with no pairing and no tell. The wearer's blocks,
     /// stages, notification and events are the same as for a partner's layer. Full Body isn't accepted.
-    /// Returns layered, advanced, full, blocked or no-character.
+    /// Returns layered, advanced, full, blocked, blacklisted or no-character.
     public string LayerSelf(BodyPart part, string name, string world)
     {
         if (Me is not { } me) return "no-character";
+        if (me.IsBlacklisted(name, world)) return "blacklisted";
         if (part.IsBlockedBy(me.BlockMask)) return "blocked";
         var before = layers.Stage(part);
         ApplyLayer(me, name, world, part);
@@ -279,6 +346,28 @@ public sealed class PairingService : IDisposable
         if (message.Part.IsBlockedBy(me.BlockMask))
             Notifier.Info($"[debug] {message.Part.DisplayName()} is blocked in your settings, so a partner's layer would be ignored.");
         ApplyLayer(me, "Debug Partner", "Debug", message.Part);
+    }
+
+    /// Debug builds only: behave as if `name@world`'s `cmy1 lay` tell had arrived from close by, through the real
+    /// pairing, Public-mode and blacklist checks (only the chat transport and the range check are skipped).
+    public void SimulateLayerFrom(string name, string world, BodyPart part)
+    {
+        if (Me is not { } me) return;
+        if (!MayAct(me, name, world))
+        {
+            Notifier.Info($"[debug] Ignored: {name}@{world} is {Refused(me, name, world)}.");
+            return;
+        }
+        ApplyLayer(me, name, world, part);
+    }
+
+    /// Debug builds only: behave as if `name@world` had sent a pairing invite (a fresh nonce), through the real checks.
+    public void SimulateInviteFrom(string name, string world)
+    {
+        var before = incoming.Count;
+        OnReceived(name, world, new ProtocolMessage(Verb.Invite, Nonce: Protocol.NewNonce()));
+        if (incoming.Count == before && Me is { } me && me.IsBlacklisted(name, world))
+            Notifier.Info($"[debug] Ignored: {name}@{world} is blacklisted.");
     }
 
     /// Debug builds only: behave as if a paired, close partner had licked <paramref name="part"/>. The `lkd` reply

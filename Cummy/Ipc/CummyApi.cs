@@ -10,9 +10,9 @@ namespace Cummy.Ipc;
 /// Cummy's own IPC, for other plugins:
 /// <list type="bullet">
 /// <item><c>Cummy.ApiVersion</c> () -> int</item>
-/// <item><c>Cummy.SendLayer</c> (name, world, partId) -> outcome: layers a paired partner with the ordinary `cmy1 lay`
-/// tell, so their Cummy still applies its own pairing, block and range rules. Part ids are the wire ids in
-/// <see cref="BodyParts.Id"/>.</item>
+/// <item><c>Cummy.SendLayer</c> (name, world, partId) -> outcome: layers a paired partner (or, in Public mode since
+/// version 4, any player in range who isn't blacklisted) with the ordinary `cmy1 lay` tell, so their Cummy still applies
+/// its own pairing, block and range rules. Part ids are the wire ids in <see cref="BodyParts.Id"/>.</item>
 /// <item><c>Cummy.OnLayerReceived</c> event (partId, sourceName, sourceWorld): a partner's layer changed a stage on the
 /// wearer. Not raised for blocked or already full parts, nor for drips.</item>
 /// <item><c>Cummy.GetLayerCount</c> () -> int (version 2): the layer stages the logged-in character wears, summed over
@@ -21,12 +21,13 @@ namespace Cummy.Ipc;
 /// drip, rinse, clean or dry off, and on login.</item>
 /// <item><c>Cummy.LayerSelf</c> (partId, sourceName, sourceWorld) -> outcome (version 3): layers the local player as if
 /// that player had, with no pairing and no tell, under the wearer's own blocks and stages. For a plugin that decided
-/// the layer itself. Returns layered, advanced, full, blocked, unknown-part (Full Body included) or no-character.</item>
+/// the layer itself. Returns layered, advanced, full, blocked, blacklisted (version 4: the source is on the wearer's
+/// blacklist), unknown-part (Full Body included) or no-character.</item>
 /// </list>
 /// Framework thread: SendLayer reads the object table.
 public sealed class CummyApi : IDisposable
 {
-    public const int Version = 3;
+    public const int Version = 4;
 
     public const string Sent = "sent";
     public const string NotPaired = "not-paired";
@@ -38,6 +39,7 @@ public sealed class CummyApi : IDisposable
     public const string Advanced = "advanced";
     public const string Full = "full";
     public const string NoCharacter = "no-character";
+    public const string Blacklisted = "blacklisted";
 
     private const string OnLayerReceivedName = "Cummy.OnLayerReceived";
     private const string OnLayersChangedName = "Cummy.OnLayersChanged";
@@ -98,7 +100,9 @@ public sealed class CummyApi : IDisposable
     public string SendLayer(string name, string world, string partId)
     {
         if (!BodyParts.TryParseId(partId, out var part)) return UnknownPart;
-        if (pairing.FindPeer(name, world) is not { } peer) return NotPaired;
+        if (pairing.IsBlacklisted(name, world)) return Blacklisted;
+        // A partner, or in Public mode a stranger with no known blocks (their Cummy still enforces its own).
+        if (pairing.TargetFor(name, world) is not { } peer) return NotPaired;
         if (!Proximity.Within(peer, Proximity.LayerRange)) return OutOfRange;
         if (IsBlocked(part, peer.BlockMask)) return Blocked;
         return pairing.SendLayer(peer, part) ? Sent : QueueFull;
@@ -111,7 +115,7 @@ public sealed class CummyApi : IDisposable
             ? (BodyParts.LayerTargetsMask & ~blockMask) == 0
             : part.IsBlockedBy(blockMask);
 
-    /// One of layered, advanced, full, blocked, unknown-part or no-character.
+    /// One of layered, advanced, full, blocked, blacklisted, unknown-part or no-character.
     public string LayerSelf(string partId, string sourceName, string sourceWorld)
     {
         if (!BodyParts.TryParseId(partId, out var part) || part == BodyPart.FullBody) return UnknownPart;

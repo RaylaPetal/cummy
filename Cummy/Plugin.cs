@@ -24,7 +24,6 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
-    [PluginService] internal static IContextMenu ContextMenu { get; private set; } = null!;
     [PluginService] internal static ITargetManager TargetManager { get; private set; } = null!;
     [PluginService] internal static ICondition Condition { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
@@ -53,7 +52,6 @@ public sealed class Plugin : IDalamudPlugin
     private readonly DripService drip;
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
-    private readonly ContextMenuService contextMenu;
     private readonly CummyApi api;
 
     public Plugin()
@@ -85,7 +83,6 @@ public sealed class Plugin : IDalamudPlugin
         quickLayerWindow = new QuickLayerWindow(Configuration, pairing, layers);
         WindowSystem.AddWindow(quickLayerWindow);
         washOff = new WashOffService(Configuration, layers);
-        contextMenu = new ContextMenuService(Configuration, pairing, layers, pickerWindow);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -104,7 +101,6 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= ToggleMainUi;
         CommandManager.RemoveHandler(CommandName);
 
-        contextMenu.Dispose();
         api.Dispose();
         washOff.Dispose();
         drip.Dispose();

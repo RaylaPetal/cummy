@@ -203,7 +203,7 @@ public sealed class MainWindow : ThemedWindow
         Ui.Heading("Partners", peers.Count);
         if (peers.Count == 0)
         {
-            Ui.Muted("Nobody yet. Right-click a player and choose Pair.");
+            Ui.MutedWrapped("Nobody yet. Stand near someone, click the droplet button and choose Pair.");
             return;
         }
 

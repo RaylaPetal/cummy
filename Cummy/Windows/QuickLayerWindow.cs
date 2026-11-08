@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Numerics;
 using Cummy.Pairing;
@@ -6,14 +7,16 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Colors;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Interface;
+using Dalamud.Interface.Components;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 
 namespace Cummy.Windows;
 
-/// A small movable droplet button, shown while a paired partner is within layering range. Clicking it opens a
-/// dropdown: pick a partner in range (your target, if paired), choose Layer or Lick, and click parts.
+/// A small movable droplet button, shown while someone is within layering range. Clicking it opens a dropdown: pick a
+/// nearby player (your target, if listed), then layer or lick them (partners always, anyone in Public mode), pair with
+/// them, or blacklist them.
 public sealed class QuickLayerWindow : ThemedWindow
 {
     private const string PopupId = "##cummyQuickLayer";
@@ -25,8 +28,8 @@ public sealed class QuickLayerWindow : ThemedWindow
     private readonly PairingService pairing;
     private readonly LayerState layers;
 
-    /// Partner chosen in the open dropdown; set when it opens, never changed behind the user's back.
-    private PeerRecord? selected;
+    /// `Name@World` of the player chosen in the open dropdown; set when it opens, never changed behind the user's back.
+    private string? selectedKey;
     private bool dragging;
 
     /// The dropdown's Layer / Lick toggle; Layer each time it opens.
@@ -48,7 +51,7 @@ public sealed class QuickLayerWindow : ThemedWindow
         => configuration.ShowQuickLayerButton
         && Plugin.ClientState.IsLoggedIn
         && layers.Current is not null
-        && PartGrid.PartnersInRange(pairing).Count > 0;
+        && PartGrid.NearbyPlayers(pairing).Count > 0;
 
     public override void PreDraw()
     {
@@ -74,11 +77,11 @@ public sealed class QuickLayerWindow : ThemedWindow
                 ImGui.SetWindowPos(ImGui.GetWindowPos() + ImGui.GetIO().MouseDelta);
         }
         if (!ImGui.IsItemActive()) dragging = false;
-        if (ImGui.IsItemHovered() && !dragging) ImGui.SetTooltip("Layer or lick a partner");
+        if (ImGui.IsItemHovered() && !dragging) ImGui.SetTooltip("Layer, lick or pair with someone nearby");
 
         if (clicked && !wasDragging)
         {
-            selected = TargetedPartner();
+            selectedKey = TargetedPlayer();
             lickMode = false;
             ImGui.OpenPopup(PopupId);
         }
@@ -89,45 +92,87 @@ public sealed class QuickLayerWindow : ThemedWindow
 
     private void DrawDropdown()
     {
-        var partners = PartGrid.PartnersInRange(pairing);
-        var present = selected != null && partners.Contains(selected);
-
-        Ui.Heading("Partner", partners.Count);
-        foreach (var p in partners)
+        var players = PartGrid.NearbyPlayers(pairing);
+        Ui.Heading("Nearby", players.Count);
+        foreach (var p in players)
         {
-            var isSelected = p == selected;
-            var clicked = Ui.Card($"quick{p.Key}", isSelected ? CardStyle.Selected : CardStyle.Normal, () =>
+            var isSelected = p.Target.Key.Equals(selectedKey, StringComparison.OrdinalIgnoreCase);
+            var clicked = Ui.Card($"quick{p.Target.Key}", isSelected ? CardStyle.Selected : CardStyle.Normal, () =>
             {
-                ImGui.TextColored(isSelected ? Ui.Accent : ImGuiColors.DalamudWhite, p.Name);
+                ImGui.TextColored(isSelected ? Ui.Accent : ImGuiColors.DalamudWhite, p.Target.Name);
                 ImGui.SameLine();
-                Ui.Muted($"@{p.World}");
+                Ui.Muted(p.IsPartner ? $"@{p.Target.World} - partner" : $"@{p.Target.World}");
             });
-            if (clicked) selected = p;
+            if (clicked) selectedKey = p.Target.Key;
         }
-        present = selected != null && partners.Contains(selected);
 
+        // Looked up again every frame: they may have left, been paired or been blacklisted since.
+        var selected = players.FirstOrDefault(p => p.Target.Key.Equals(selectedKey, StringComparison.OrdinalIgnoreCase));
         ImGuiHelpers.ScaledDummy(2f);
+        if (selected == null)
+        {
+            Ui.Muted(selectedKey == null ? "Choose someone first." : "They're not nearby any more.");
+            PartGrid.Draw(null, false, _ => { }, "quick");
+            return;
+        }
+
+        var target = selected.Target;
+        DrawPlayerActions(selected);
+        if (!selected.IsPartner && !pairing.PublicLayering)
+        {
+            Ui.Muted("Pair with them, or switch to Public in settings, to layer them.");
+            return;
+        }
+
         if (ImGui.RadioButton("Layer", !lickMode)) lickMode = false;
         ImGui.SameLine();
         if (ImGui.RadioButton("Lick", lickMode)) lickMode = true;
 
-        var enabled = present && (!lickMode || PartGrid.InRange(selected!, Proximity.LickRange));
-        if (!present)
-            Ui.Muted(selected == null ? "Choose a partner first." : $"{selected.Name} is too far away now.");
-        else if (!enabled)
-            Ui.Muted($"{selected!.Name} is too far away to lick.");
-
+        var enabled = !lickMode || PartGrid.InRange(target, Proximity.LickRange);
+        if (!enabled) Ui.Muted($"{target.Name} is too far away to lick.");
         if (lickMode)
-            PartGrid.Draw(present ? selected : null, enabled, part => pairing.SendLick(selected!, part), "quicklick", lick: true);
+            PartGrid.Draw(target, enabled, part => pairing.SendLick(target, part), "quicklick", lick: true, isPartner: selected.IsPartner);
         else
-            PartGrid.Draw(present ? selected : null, enabled, part => pairing.SendLayer(selected!, part), "quick");
+            PartGrid.Draw(target, enabled, part => pairing.SendLayer(target, part), "quick", isPartner: selected.IsPartner);
     }
 
-    /// The hard target, when it is a paired partner within layering range; otherwise nobody.
-    private PeerRecord? TargetedPartner()
+    /// Pair (unpaired players only) and Blacklist (hold Ctrl) for the selected player.
+    private void DrawPlayerActions(NearbyPlayer selected)
+    {
+        var target = selected.Target;
+        if (!selected.IsPartner)
+        {
+            var pending = pairing.IsInvitePending(target.Name, target.World);
+            using (ImRaii.Disabled(pending))
+            {
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.UserPlus, pending ? "Pair (invite sent)" : "Pair"))
+                    pairing.Invite(target.Name, target.World);
+            }
+            ImGui.SameLine();
+        }
+        var ctrl = ImGui.GetIO().KeyCtrl;
+        using (ImRaii.Disabled(!ctrl))
+        {
+            if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Ban, "Blacklist"))
+            {
+                pairing.Blacklist(target.Name, target.World);
+                selectedKey = null;
+                PartGrid.Invalidate();
+            }
+        }
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(ctrl
+                ? $"Never let {target.Name} layer, lick or invite you{(selected.IsPartner ? " (unpairs them)" : "")}"
+                : $"Hold Ctrl to blacklist {target.Name}");
+        ImGuiHelpers.ScaledDummy(2f);
+    }
+
+    /// The hard target's `Name@World`, when they're listed (nearby, not blacklisted); otherwise nobody.
+    private string? TargetedPlayer()
     {
         if (Plugin.TargetManager.Target is not IPlayerCharacter pc) return null;
-        var peer = pairing.FindPeer(pc.Name.TextValue, pc.HomeWorld.Value.Name.ExtractText());
-        return peer != null && PartGrid.PartnersInRange(pairing).Contains(peer) ? peer : null;
+        var name = pc.Name.TextValue;
+        var world = pc.HomeWorld.Value.Name.ExtractText();
+        return PartGrid.NearbyPlayers(pairing).FirstOrDefault(p => p.Target.Matches(name, world))?.Target.Key;
     }
 }
