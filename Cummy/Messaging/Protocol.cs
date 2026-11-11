@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace Cummy.Messaging;
@@ -15,13 +16,17 @@ public enum Verb
     BlockAll,
     Lick,
     Licked,
+    /// Another plugin's message, relayed between partners (PluginRelay).
+    Extension,
 }
 
-public sealed record ProtocolMessage(Verb Verb, string? Nonce = null, int BlockMask = 0, BodyPart Part = default);
+public sealed record ProtocolMessage(Verb Verb, string? Nonce = null, int BlockMask = 0, BodyPart Part = default,
+                                     string? Channel = null, string? Payload = null);
 
 /// The `cmy1` tell format: `cmy1 inv <nonce> <mask>`, `cmy1 acc <nonce> <mask>`, `cmy1 unp`, `cmy1 lay <part>`,
 /// `cmy1 blk <mask>`, `cmy1 blx <mask>`, `cmy1 bly <mask>`, `cmy1 lck <part>` (a lick of the receiver's
-/// part), `cmy1 lkd <part>` (the licked wearer's reply that it cleaned that part). Short lowercase ASCII only, so ChatSender can whitelist
+/// part), `cmy1 lkd <part>` (the licked wearer's reply that it cleaned that part), `cmy1 ext <channel> <payload>` (another
+/// plugin's message, see <see cref="Message"/>). Short lowercase ASCII only, so ChatSender can whitelist
 /// it exactly. Each block message carries only the bits every version that understands it accepts, because those
 /// versions reject the whole message otherwise (and would refuse to pair): `inv`/`acc`/`blk` the first body parts
 /// (<see cref="BodyParts.LegacyBodyMask"/>), `blx` those plus the facial parts (<see cref="BodyParts.ExtendedMask"/>),
@@ -52,6 +57,28 @@ public static class Protocol
     public static string Block(int blockMask) => $"{Prefix} blk {Mask(blockMask & BodyParts.LegacyBodyMask)}";
     public static string BlockExtended(int blockMask) => $"{Prefix} blx {Mask(blockMask & BodyParts.ExtendedMask)}";
     public static string BlockAll(int blockMask) => $"{Prefix} bly {Mask(blockMask)}";
+
+    public const int MaxChannelLength = 16;
+    public const int MaxPayloadLength = 200;
+
+    /// Another plugin's message: null when the channel isn't 1-16 of [a-z0-9], or the payload isn't space-separated
+    /// [a-z0-9] tokens of at most 200 characters in all. Short enough for any name and world within the chat limit.
+    public static string? Message(string channel, string payload)
+        => IsChannel(channel) && IsPayload(payload) ? $"{Prefix} ext {channel} {payload}" : null;
+
+    public static bool IsChannel(string? channel)
+        => channel is { Length: > 0 and <= MaxChannelLength } && IsToken(channel);
+
+    public static bool IsPayload(string? payload)
+        => payload is { Length: > 0 and <= MaxPayloadLength } && payload.Split(' ').All(IsToken);
+
+    private static bool IsToken(string s)
+    {
+        if (s.Length == 0) return false;
+        foreach (var c in s)
+            if (!(c is >= 'a' and <= 'z' || char.IsAsciiDigit(c))) return false;
+        return true;
+    }
 
     /// The bits a block message of <paramref name="verb"/> covers: the receiver replaces these and keeps the rest.
     public static int Covers(Verb verb) => verb switch
@@ -107,6 +134,8 @@ public static class Protocol
                 return new ProtocolMessage(Verb.Block, BlockMask: blkMask & BodyParts.LegacyBodyMask);
             case "blx" when parts.Length == 3 && TryMask(parts[2], out var blxMask):
                 return new ProtocolMessage(Verb.BlockExtended, BlockMask: blxMask & BodyParts.ExtendedMask);
+            case "ext" when parts.Length >= 4 && IsChannel(parts[2]) && IsPayload(string.Join(' ', parts[3..])):
+                return new ProtocolMessage(Verb.Extension, Channel: parts[2], Payload: string.Join(' ', parts[3..]));
             case "bly" when parts.Length == 3 && TryMask(parts[2], out var blyMask, MaxMaskDigits):
                 return new ProtocolMessage(Verb.BlockAll, BlockMask: blyMask & BodyParts.AllMask);
             default:

@@ -1,10 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Cummy.Ipc;
 using Cummy.Messaging;
 using Cummy.State;
 
 namespace Cummy.Pairing;
+
+/// What sending a pairing invite did; only <see cref="Sent"/> queued a tell.
+public enum InviteOutcome { Sent, AlreadyPaired, Pending, Blacklisted, QueueFull, NoCharacter }
+
+/// Why a send to a player can't go out, checked before sending (null from the checks = it may).
+public enum SendRefusal { NotPaired, Blacklisted, OutOfRange }
 
 public sealed record IncomingInvite(string Name, string World, string Nonce, int BlockMask, DateTime ExpiresUtc)
 {
@@ -14,7 +21,7 @@ public sealed record IncomingInvite(string Name, string World, string Nonce, int
 /// Tell-handshake pairing (invite → accept, unpair either way) and the layer and lick commands that paired peers, or
 /// anyone while the wearer is in Public mode, may send from close by (<see cref="Proximity"/>); the blacklist refuses a
 /// player everything (<see cref="MayAct"/>). Outgoing tells are the direct result of a user click, except the
-/// `lkd` reply to a partner's lick that cleaned something and layers another plugin requests through
+/// `lkd` reply to a partner's lick that cleaned something, and layers, licks and invites another plugin requests through
 /// <see cref="Cummy.Ipc.CummyApi"/>.
 public sealed class PairingService : IDisposable
 {
@@ -36,8 +43,19 @@ public sealed class PairingService : IDisposable
     /// Licks we sent, by peer key and part, awaiting their `lkd`. Memory only.
     private readonly Dictionary<(string PeerKey, BodyPart Part), DateTime> pendingLicks = new();
 
-    /// Raised when an invite arrives, so the prompt window can open.
-    public event Action? InviteReceived;
+    /// Raised when an invite that isn't ignored arrives, with who sent it, so the prompt window can open.
+    public event Action<string, string>? InviteReceived;
+
+    /// A partner was added or removed, a partner's known blocks changed, Public mode was switched, or the blacklist
+    /// changed.
+    public event Action? AccessChanged;
+
+    /// The wearer's own blocks changed.
+    public event Action? BlocksChanged;
+
+    /// A lick we sent got its answer: (name, world, part, licked). False when no `lkd` came within
+    /// <see cref="LickTimeout"/>, i.e. there was nothing to lick.
+    public event Action<string, string, BodyPart, bool>? LickResult;
 
     /// Raised when a partner's layer landed on a clean part (not for blocked or already-covered parts, nor on login).
     public event Action<BodyPart>? LayerAccepted;
@@ -98,17 +116,47 @@ public sealed class PairingService : IDisposable
 
     // ── Actions (user clicks) ──────────────────────────────────────────────────
 
+    /// The UI's Pair button: <see cref="TryInvite"/> with the outcome told to the wearer.
     public void Invite(string name, string world)
     {
-        if (Me is not { } me || FindPeer(name, world) is not null) return;
-        var nonce = Protocol.NewNonce();
-        if (!sender.SendTell(name, world, Protocol.Invite(nonce, me.BlockMask)))
+        switch (TryInvite(name, world))
         {
-            Notifier.Error($"Couldn't send the pairing invite to {name}.");
-            return;
+            case InviteOutcome.Sent:
+                Notifier.Info($"Pairing invite sent to {name}@{world}.");
+                break;
+            case InviteOutcome.QueueFull:
+                Notifier.Error($"Couldn't send the pairing invite to {name}.");
+                break;
+            case InviteOutcome.Blacklisted:
+                Notifier.Info($"{name}@{world} is on your blacklist.");
+                break;
         }
+    }
+
+    /// Sends a pairing invite to `name@world` unless they're paired, already invited, or blacklisted. Quiet: the
+    /// caller tells the user.
+    public InviteOutcome TryInvite(string name, string world)
+    {
+        if (Me is not { } me) return InviteOutcome.NoCharacter;
+        if (me.IsBlacklisted(name, world)) return InviteOutcome.Blacklisted;
+        if (FindPeer(name, world) is not null) return InviteOutcome.AlreadyPaired;
+        if (IsInvitePending(name, world)) return InviteOutcome.Pending;
+        var nonce = Protocol.NewNonce();
+        if (!sender.SendTell(name, world, Protocol.Invite(nonce, me.BlockMask))) return InviteOutcome.QueueFull;
         outgoing[$"{name}@{world}"] = (nonce, DateTime.UtcNow + InviteLifetime);
-        Notifier.Info($"Pairing invite sent to {name}@{world}.");
+        return InviteOutcome.Sent;
+    }
+
+    /// Whether a layer or lick to `name@world` may go out from here, within <paramref name="range"/>: null when it
+    /// may, with the target to send to (a partner, or in Public mode a transient stranger).
+    public SendRefusal? CheckSend(string name, string world, float range, out PeerRecord? target)
+    {
+        target = null;
+        if (IsBlacklisted(name, world)) return SendRefusal.Blacklisted;
+        if (TargetFor(name, world) is not { } peer) return SendRefusal.NotPaired;
+        if (!Proximity.Within(peer, range)) return SendRefusal.OutOfRange;
+        target = peer;
+        return null;
     }
 
     public void AcceptInvite(IncomingInvite invite)
@@ -132,6 +180,7 @@ public sealed class PairingService : IDisposable
         if (Me is not { } me || me.PublicLayering == on) return;
         me.PublicLayering = on;
         config.Save();
+        AccessChanged?.Invoke();
     }
 
     /// Refuse `name@world` everything from now on: a partner is unpaired (one `unp`), and invites either way are
@@ -146,6 +195,7 @@ public sealed class PairingService : IDisposable
         if (me.IsBlacklisted(name, world)) return;
         me.Blacklist.Add(new BlacklistEntry { Name = name, World = world, AddedAtUtc = DateTime.UtcNow });
         config.Save();
+        AccessChanged?.Invoke();
         Notifier.Info($"Blacklisted {key}.");
     }
 
@@ -153,6 +203,7 @@ public sealed class PairingService : IDisposable
     {
         if (Me is not { } me || !me.Blacklist.Remove(entry)) return;
         config.Save();
+        AccessChanged?.Invoke();
         Notifier.Info($"Removed {entry.Key} from your blacklist.");
     }
 
@@ -161,6 +212,7 @@ public sealed class PairingService : IDisposable
         if (Me is not { } me) return;
         me.Peers.Remove(peer);
         config.Save();
+        AccessChanged?.Invoke();
         // Best effort: the peer is gone locally even if the tell can't be delivered.
         sender.SendTell(peer.Name, peer.World, Protocol.Unpair());
         Notifier.Info($"Unpaired from {peer.Key}.");
@@ -195,6 +247,7 @@ public sealed class PairingService : IDisposable
             if (!pendingLicks.TryGetValue(key, out var current) || current != expires) return;
             pendingLicks.Remove(key);
             Notifier.Info($"Nothing to lick on {peer.Name}'s {part.DisplayName().ToLowerInvariant()}.");
+            LickResult?.Invoke(peer.Name, peer.World, part, false);
         }, LickTimeout + TimeSpan.FromSeconds(1));
         return true;
     }
@@ -204,6 +257,7 @@ public sealed class PairingService : IDisposable
     public void BroadcastBlocks(BodyPart changed)
     {
         if (Me is not { } me) return;
+        BlocksChanged?.Invoke();
         foreach (var peer in me.Peers)
         {
             if ((changed.Bit() & BodyParts.LegacyBodyMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.Block(me.BlockMask));
@@ -236,7 +290,7 @@ public sealed class PairingService : IDisposable
                 incoming.RemoveAll(i => i.Key.Equals($"{name}@{world}", StringComparison.OrdinalIgnoreCase));
                 incoming.Add(new IncomingInvite(name, world, message.Nonce!, message.BlockMask, DateTime.UtcNow + InviteLifetime));
                 Notifier.Info($"{name}@{world} wants to pair with you.");
-                InviteReceived?.Invoke();
+                InviteReceived?.Invoke(name, world);
                 break;
 
             case Verb.Accept:
@@ -260,6 +314,7 @@ public sealed class PairingService : IDisposable
                 me.Peers.Remove(gone);
                 config.Save();
                 Notifier.Info($"{gone.Key} unpaired from you.");
+                AccessChanged?.Invoke();
                 break;
 
             case Verb.Block or Verb.BlockExtended or Verb.BlockAll:
@@ -267,8 +322,11 @@ public sealed class PairingService : IDisposable
                 // `blk` arriving after a `bly` doesn't forget blocks it can't express.
                 if (me.FindPeer(name, world) is not { } blocker) return;
                 var covers = Protocol.Covers(message.Verb);
-                blocker.BlockMask = (blocker.BlockMask & ~covers) | (message.BlockMask & covers);
+                var known = (blocker.BlockMask & ~covers) | (message.BlockMask & covers);
+                if (known == blocker.BlockMask) return;
+                blocker.BlockMask = known;
                 config.Save();
+                AccessChanged?.Invoke();
                 break;
 
             case Verb.Layer:
@@ -296,7 +354,7 @@ public sealed class PairingService : IDisposable
                     Plugin.Log.Information($"Ignored a lick from {name}@{world}: not within {Proximity.LickRange} yalms.");
                     return;
                 }
-                if (BeLicked(name, message.Part) && !sender.SendTell(name, world, Protocol.Licked(message.Part)))
+                if (BeLicked(name, world, message.Part) && !sender.SendTell(name, world, Protocol.Licked(message.Part)))
                     Plugin.Log.Warning($"Couldn't confirm {name}@{world}'s lick of {message.Part}: send queue full.");
                 break;
 
@@ -307,7 +365,7 @@ public sealed class PairingService : IDisposable
                     return;
                 }
                 // Keyed like SendLick's pending entry (PeerRecord.Key), so a stranger's reply matches their own lick.
-                OnLickConfirmed(me, $"{name}@{world}", name, message.Part);
+                OnLickConfirmed(me, $"{name}@{world}", name, world, message.Part);
                 break;
         }
     }
@@ -318,17 +376,25 @@ public sealed class PairingService : IDisposable
 
     /// For another plugin that decided a layer itself (Corruption, when a scene partner's climax counts): layers the local
     /// player as if <paramref name="name"/>@<paramref name="world"/> had, with no pairing and no tell. The wearer's blocks,
-    /// stages, notification and events are the same as for a partner's layer. Full Body isn't accepted.
+    /// stages, notification and events are the same as for a partner's layer. Full Body layers every unblocked part.
     /// Returns layered, advanced, full, blocked, blacklisted or no-character.
     public string LayerSelf(BodyPart part, string name, string world)
     {
-        if (Me is not { } me) return "no-character";
-        if (me.IsBlacklisted(name, world)) return "blacklisted";
-        if (part.IsBlockedBy(me.BlockMask)) return "blocked";
+        if (Me is not { } me) return ApiStrings.NoCharacter;
+        if (me.IsBlacklisted(name, world)) return ApiStrings.Blacklisted;
+        if (part == BodyPart.FullBody)
+        {
+            // Like a partner's Full Body: every unblocked part one stage; only blocking them all refuses it.
+            if ((BodyParts.LayerTargetsMask & ~me.BlockMask) == 0) return ApiStrings.Blocked;
+            var total = BodyParts.LayerTargets.Sum(layers.Stage);
+            ApplyFullBody(me, name, world);
+            return BodyParts.LayerTargets.Sum(layers.Stage) == total ? ApiStrings.Full : ApiStrings.Layered;
+        }
+        if (part.IsBlockedBy(me.BlockMask)) return ApiStrings.Blocked;
         var before = layers.Stage(part);
         ApplyLayer(me, name, world, part);
         var after = layers.Stage(part);
-        return after == before ? "full" : before == 0 ? "layered" : "advanced";
+        return after == before ? ApiStrings.Full : before == 0 ? ApiStrings.Layered : ApiStrings.Advanced;
     }
 
 #if DEBUG
@@ -380,7 +446,7 @@ public sealed class PairingService : IDisposable
             Notifier.Error($"[debug] {part} did not survive the wire format.");
             return;
         }
-        Notifier.Info(BeLicked("Debug Partner", message.Part)
+        Notifier.Info(BeLicked("Debug Partner", "Debug", message.Part)
             ? $"[debug] Would reply: {Protocol.Licked(message.Part)}"
             : $"[debug] Your {part.DisplayName().ToLowerInvariant()} is clean: no reply.");
     }
@@ -398,15 +464,15 @@ public sealed class PairingService : IDisposable
         const string key = "Debug Partner@Debug";
         if (solicited) pendingLicks[(key, message.Part)] = DateTime.UtcNow + LickTimeout;
         else Notifier.Info("[debug] Unsolicited confirmation: should change nothing.");
-        OnLickConfirmed(me, key, "Debug Partner", message.Part);
+        OnLickConfirmed(me, key, "Debug Partner", "Debug", message.Part);
     }
 #endif
 
     /// A partner's verified lick: cleans the whole part (every stage) if it is layered. True when it did, so the
     /// caller confirms with `lkd`. Blocks don't apply: they only stop layering.
-    private bool BeLicked(string name, BodyPart part)
+    private bool BeLicked(string name, string world, BodyPart part)
     {
-        if (!layers.Clean(part)) return false;
+        if (!layers.Clean(part, new LayerChange(ChangeCause.Lick, name, world))) return false;
         Notifier.Info($"{name} licked your {part.DisplayName().ToLowerInvariant()} clean.");
         return true;
     }
@@ -414,18 +480,19 @@ public sealed class PairingService : IDisposable
     /// A partner's `lkd`: only for a lick we sent them of that part, still waiting. Then it lands on our face: a
     /// clean face gets layered at stage 1, a covered one (any stage; licks never advance it) spills a stage down the
     /// chest; licking their face (a kiss) cleans ours instead. A blocked face (or chest, for the spill) takes nothing.
-    private void OnLickConfirmed(CharacterData me, string peerKey, string name, BodyPart part)
+    private void OnLickConfirmed(CharacterData me, string peerKey, string name, string world, BodyPart part)
     {
         if (!pendingLicks.Remove((peerKey, part), out var expires) || expires < DateTime.UtcNow)
         {
             Plugin.Log.Information($"Ignored a lick confirmation from {peerKey} for {part} that matches no pending lick.");
             return;
         }
+        LickResult?.Invoke(name, world, part, true);
 
         var partName = part.DisplayName().ToLowerInvariant();
         if (part == BodyPart.Face)
         {
-            layers.Clean(BodyPart.Face);
+            layers.Clean(BodyPart.Face, new LayerChange(ChangeCause.Kiss, name, world));
             Notifier.Info($"You kissed {name} - both your faces are clean.");
             return;
         }
@@ -436,14 +503,14 @@ public sealed class PairingService : IDisposable
         }
         if (!layers.IsLayered(BodyPart.Face))
         {
-            layers.Layer(BodyPart.Face);
+            layers.Layer(BodyPart.Face, new LayerChange(ChangeCause.Lick, name, world));
             Notifier.Info($"You licked {name}'s {partName} clean - it's on your face now.");
             return;
         }
 
         layers.RestartDrying(BodyPart.Face);
         var spilled = !BodyPart.Chest.IsBlockedBy(me.BlockMask)
-                      && layers.Layer(BodyPart.Chest) is LayerOutcome.Layered or LayerOutcome.Advanced;
+                      && layers.Layer(BodyPart.Chest, new LayerChange(ChangeCause.Lick, name, world)) is LayerOutcome.Layered or LayerOutcome.Advanced;
         Notifier.Info(spilled
             ? $"You licked {name}'s {partName} clean - your face is already covered, so it spills down your chest."
             : $"You licked {name}'s {partName} clean.");
@@ -462,7 +529,7 @@ public sealed class PairingService : IDisposable
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();
-        var outcome = layers.Layer(part);
+        var outcome = layers.Layer(part, new LayerChange(ChangeCause.Layer, name, world));
         var stage = layers.Stage(part);
         switch (outcome)
         {
@@ -494,7 +561,7 @@ public sealed class PairingService : IDisposable
             Plugin.Log.Information($"Ignored a Full Body layer from {name}@{world}: every part is blocked.");
             return;
         }
-        var (changed, stage) = layers.LayerAll(me.BlockMask);
+        var (changed, stage) = layers.LayerAll(me.BlockMask, new LayerChange(ChangeCause.FullBody, name, world));
         if (changed.Count == 0)
         {
             Notifier.Info($"{name} tried to layer your whole body, but it's already fully covered.");
@@ -512,6 +579,7 @@ public sealed class PairingService : IDisposable
         if (Me is not { } me || me.FindPeer(name, world) is not null) return;
         me.Peers.Add(new PeerRecord { Name = name, World = world, PairedAtUtc = DateTime.UtcNow, BlockMask = blockMask });
         config.Save();
+        AccessChanged?.Invoke();
     }
 
     public IEnumerable<PeerRecord> PeersSorted() => Peers.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase);

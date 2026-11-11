@@ -52,6 +52,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly DripService drip;
     private readonly MoodlesIpc moodles;
     private readonly MoodleService moodleService;
+    private readonly PluginRelay relay;
+    private readonly PluginOverlays pluginOverlays;
     private readonly CummyApi api;
 
     public Plugin()
@@ -67,12 +69,14 @@ public sealed class Plugin : IDalamudPlugin
         penumbra = new PenumbraIpc(PluginInterface);
         overlaySources = new OverlaySources(Configuration);
         proteus = new Cummy.Proteus.ProteusIpc(PluginInterface);
-        compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus);
+        pluginOverlays = new PluginOverlays(Configuration, PluginInterface);
+        compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus, pluginOverlays);
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
-        api = new CummyApi(pairing, layers);
+        relay = new PluginRelay(Configuration, layers, sender, listener);
+        api = new CummyApi(Configuration, pairing, layers, relay, pluginOverlays);
 
-        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api);
+        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api, relay, pluginOverlays);
         pickerWindow = new LayerPickerWindow(pairing);
         mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi);
         inviteWindow = new InviteWindow(pairing);
@@ -102,6 +106,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandName);
 
         api.Dispose();
+        relay.Dispose();
         washOff.Dispose();
         drip.Dispose();
         moodleService.Dispose();
@@ -109,6 +114,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.RemoveAllWindows();
 
         compositor.Dispose();
+        pluginOverlays.Dispose();
         proteus.Dispose();
         penumbra.Dispose();
         pairing.Dispose();
@@ -160,11 +166,11 @@ public sealed class Plugin : IDalamudPlugin
 
         if (all)
         {
-            Notifier.Info(layers.CleanAll() ? "All cleaned up." : "You're already clean.");
+            Notifier.Info(layers.CleanAll(LayerChange.Of(ChangeCause.Clean)) ? "All cleaned up." : "You're already clean.");
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();
-        Notifier.Info(layers.Clean(part) ? $"Cleaned your {partName}." : $"Your {partName} is already clean.");
+        Notifier.Info(layers.Clean(part, LayerChange.Of(ChangeCause.Clean)) ? $"Cleaned your {partName}." : $"Your {partName} is already clean.");
     }
 
     public void ToggleConfigUi() => settingsWindow.Toggle();

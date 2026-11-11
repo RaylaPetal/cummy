@@ -19,7 +19,7 @@ public sealed class InviteWindow : ThemedWindow
     {
         this.pairing = pairing;
         Flags = ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse;
-        pairing.InviteReceived += () => IsOpen = true;
+        pairing.InviteReceived += (_, _) => IsOpen = true;
     }
 
     protected override void DrawContents()

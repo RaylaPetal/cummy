@@ -34,8 +34,13 @@ public sealed class OverlayPackService
     private readonly CompositeCache cache;
     private readonly Configuration configuration;
     private readonly LayerState layers;
+    private readonly PluginOverlays pluginOverlays;
 
     private string? modDir;
+    // The plugin options meta.json was last written with (null = not yet this session).
+    private string? writtenOptionNames;
+    // What each plugin overlay's option was last written with, by overlay id.
+    private readonly Dictionary<string, (string Key, Dictionary<string, object>? Option)> writtenPlugins = new();
     private bool registered;
     // What each part's option was last written with, so a change (e.g. one part's stage) rewrites only that part.
     // Pack writes run off-thread and may overlap; they take this lock.
@@ -48,10 +53,12 @@ public sealed class OverlayPackService
     // The latest request, applied when a background art write finishes.
     private Guid wantedCollection;
     private IReadOnlyList<BodyPart> wantedLayers = [];
+    private IReadOnlyList<PluginOverlay> wantedPlugins = [];
 
     public OverlayPackService(PenumbraIpc penumbra, ProteusIpc proteus, OverlaySources overlaySources, CompositeCache cache,
-                              Configuration configuration, LayerState layers)
+                              Configuration configuration, LayerState layers, PluginOverlays pluginOverlays)
     {
+        this.pluginOverlays = pluginOverlays;
         this.configuration = configuration;
         this.layers = layers;
         this.penumbra = penumbra;
@@ -65,22 +72,26 @@ public sealed class OverlayPackService
     /// Returns a short status for the main window.
     public string Apply(Guid collection, IReadOnlyList<BodyPart> layered, IReadOnlyList<string> bodyMaterials)
     {
-        if (!EnsureMod()) return "Can't set up the Cummy Layers mod in Penumbra";
+        // Other plugins' body overlays ride along as options of their own, after the parts (so above Cummy's layers).
+        var plugins = pluginOverlays.Showing.Where(e => e.Part is not { } p || !p.IsFacial()).ToList();
+        if (!EnsureMod(plugins)) return "Can't set up the Cummy Layers mod in Penumbra";
         wantedCollection = collection;
         wantedLayers = layered;
+        wantedPlugins = plugins;
 
         // Each option carries its part's current stage; a clean part's carries stage 1, what its first layer shows.
         var sources = Parts.ToDictionary(p => p, p => overlaySources.Resolve(p, Math.Max(1, layers.Stage(p))));
         var looks = Parts.ToDictionary(p => p, configuration.ResolveLook);
         var signature = string.Join("|", bodyMaterials) + "#"
-                      + string.Join("|", Parts.Select(p => $"{p.Id()}={sources[p].Key}~{looks[p].Key}"));
+                      + string.Join("|", Parts.Select(p => $"{p.Id()}={sources[p].Key}~{looks[p].Key}"))
+                      + "#" + string.Join("|", plugins.Select(e => $"{e.Id}={e.Stamp}%{e.Opacity}"));
         if (signature != writtenSignature)
         {
             if (renderingSignature != signature)
             {
                 renderingSignature = signature;
                 var dir = modDir!;
-                Task.Run(() => WritePack(dir, sources, looks, bodyMaterials)).ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() =>
+                Task.Run(() => WritePack(dir, sources, looks, bodyMaterials, plugins)).ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() =>
                 {
                     if (renderingSignature != signature) return;   // superseded
                     renderingSignature = null;
@@ -92,14 +103,15 @@ public sealed class OverlayPackService
                     writtenSignature = signature;
                     // Proteus recomposites on its own when the options change, but not when only the sidecar's art did.
                     artChanged = true;
-                    Select(wantedCollection, wantedLayers);
+                    Select(wantedCollection, wantedLayers, wantedPlugins);
                 }));
             }
             return "Preparing layers for Proteus...";
         }
 
-        Select(collection, layered);
-        return layered.Count == 0 ? "Clean" : $"Showing {layered.Count} body layer(s) via Proteus";
+        Select(collection, layered, plugins);
+        var shown = plugins.Count == 0 ? "" : $" and {plugins.Count} plugin overlay(s)";
+        return layered.Count == 0 && plugins.Count == 0 ? "Clean" : $"Showing {layered.Count} body layer(s){shown} via Proteus";
     }
 
     /// Leaving Proteus mode: nothing selected (and Proteus asked to recomposite, if it is still there).
@@ -107,13 +119,17 @@ public sealed class OverlayPackService
     {
         wantedCollection = collection;
         wantedLayers = [];
-        if (!EnsureMod()) return;
-        Select(collection, []);
+        wantedPlugins = [];
+        if (!EnsureMod([])) return;
+        Select(collection, [], []);
     }
 
-    private void Select(Guid collection, IReadOnlyList<BodyPart> layered)
+    private void Select(Guid collection, IReadOnlyList<BodyPart> layered, IReadOnlyList<PluginOverlay> plugins)
     {
-        var names = Parts.Where(layered.Contains).Select(p => p.DisplayName()).ToList();
+        var names = Parts.Where(layered.Contains).Select(p => p.DisplayName())
+                         .Concat(plugins.Where(e => writtenPlugins.TryGetValue(e.Id, out var w) && w.Option != null)
+                                        .Select(OptionName))
+                         .ToList();
         var selection = $"{collection}:{string.Join(",", names)}";
         if (selection != lastSelection)
         {
@@ -132,17 +148,25 @@ public sealed class OverlayPackService
 
     // ── The pack on disk ─────────────────────────────────────────────────────
 
-    private bool EnsureMod()
+    /// Penumbra's name for a plugin overlay's option.
+    private static string OptionName(PluginOverlay e) => $"Plugin: {e.Id}";
+
+    private bool EnsureMod(IReadOnlyList<PluginOverlay> plugins)
     {
         if (modDir == null)
         {
             if (penumbra.GetModDirectory() is not { } root) return false;
             modDir = Path.Combine(root, ModFolder);
         }
+        // Plugin options change the option list: rewrite it and have Penumbra re-read it (selection follows by name).
+        var pluginNames = plugins.Select(OptionName).ToList();
+        var optionNames = string.Join("|", pluginNames);
+        var namesChanged = writtenOptionNames != null && writtenOptionNames != optionNames;
         try
         {
-            if (!File.Exists(Path.Combine(modDir, "meta.json")) || !registered)
-                WriteMeta(modDir);
+            if (!File.Exists(Path.Combine(modDir, "meta.json")) || !registered || namesChanged)
+                WriteMeta(modDir, pluginNames);
+            writtenOptionNames = optionNames;
         }
         catch (Exception ex)
         {
@@ -155,12 +179,17 @@ public sealed class OverlayPackService
             penumbra.ReloadMod(ModFolder);
             registered = true;
         }
+        else if (namesChanged)
+        {
+            penumbra.ReloadMod(ModFolder);
+            lastSelection = null;   // option indices moved: select again by name
+        }
         return true;
     }
 
     /// Penumbra's meta.json: no redirects of its own (one no-op swap, as Proteus-made packs have), and the
     /// multi-select group whose options Proteus reads.
-    private static void WriteMeta(string dir)
+    private static void WriteMeta(string dir, IReadOnlyList<string> pluginOptions)
     {
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, "meta.json");
@@ -194,9 +223,9 @@ public sealed class OverlayPackService
                     ["Description"] = "Set by Cummy to your layered body parts.",
                     ["Priority"] = 0,
                     ["DefaultSettings"] = 0,
-                    ["Options"] = Parts.Select(p => new Dictionary<string, object>
+                    ["Options"] = Parts.Select(p => p.DisplayName()).Concat(pluginOptions).Select(name => new Dictionary<string, object>
                     {
-                        ["Name"] = p.DisplayName(),
+                        ["Name"] = name,
                         ["Description"] = "",
                         ["Priority"] = 0,
                         ["Files"] = new Dictionary<string, string>(),
@@ -212,14 +241,16 @@ public sealed class OverlayPackService
     /// Each changed part's art (shipped full art copied as-is; custom, full-body-split and stage-cut art rendered) and
     /// the Proteus sidecar.
     private void WritePack(string dir, IReadOnlyDictionary<BodyPart, OverlaySource> sources,
-                           IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials)
+                           IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials,
+                           IReadOnlyList<PluginOverlay> plugins)
     {
         lock (packLock)
-            WritePackLocked(dir, sources, looks, bodyMaterials);
+            WritePackLocked(dir, sources, looks, bodyMaterials, plugins);
     }
 
     private void WritePackLocked(string dir, IReadOnlyDictionary<BodyPart, OverlaySource> sources,
-                                 IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials)
+                                 IReadOnlyDictionary<BodyPart, LayerLook> looks, IReadOnlyList<string> bodyMaterials,
+                                 IReadOnlyList<PluginOverlay> plugins)
     {
         var options = new List<object>();
         var materials = string.Join("|", bodyMaterials);
@@ -276,6 +307,8 @@ public sealed class OverlayPackService
             Plugin.Log.Debug($"Cummy Layers: wrote {part.Id()} ({source.Key}).");
         }
 
+        WritePluginOptions(dir, materials, bodyMaterials, plugins, options);
+
         var sidecar = new Dictionary<string, object>
         {
             ["FormatVersion"] = 1,
@@ -287,30 +320,97 @@ public sealed class OverlayPackService
         Plugin.Log.Information($"Cummy Layers pack written for {string.Join(", ", bodyMaterials)}.");
     }
 
-    /// One sidecar option: the part's descriptor, plus the look's Row 16 (what Proteus uses for an overlay without an
-    /// index map) and skin-tone strength. A default look adds nothing, so the sidecar is the same as without looks.
-    private static Dictionary<string, object> Option(BodyPart part, string diffuse, string? normal,
-                                                     IReadOnlyList<string> bodyMaterials, LayerLook look)
+    /// Other plugins' overlays, one option each after the parts: the whole image (a full-body image is already in the
+    /// Bibo layout; a part's image is used whole, like a part override), its opacity in the alpha, full shine, no look.
+    private void WritePluginOptions(string dir, string materials, IReadOnlyList<string> bodyMaterials,
+                                    IReadOnlyList<PluginOverlay> plugins, List<object> options)
+    {
+        foreach (var gone in writtenPlugins.Keys.Where(id => plugins.All(e => e.Id != id)).ToList())
+            writtenPlugins.Remove(gone);
+        foreach (var e in plugins)
+        {
+            var folder = "plugin-" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(
+                System.Text.Encoding.UTF8.GetBytes(e.Id.ToLowerInvariant())))[..12].ToLowerInvariant();
+            var artDir = Path.Combine(dir, "Proteus", "art", folder);
+            var key = $"{dir}#{materials}#{e.Stamp}%{e.Opacity}";
+            if (writtenPlugins.TryGetValue(e.Id, out var written) && written.Key == key && Directory.Exists(artDir))
+            {
+                if (written.Option != null) options.Add(written.Option);
+                continue;
+            }
+            writtenPlugins.Remove(e.Id);
+            Directory.CreateDirectory(artDir);
+            foreach (var old in Directory.EnumerateFiles(artDir)) File.Delete(old);
+
+            // Whole image: a Part-origin source is never split by the region map.
+            var source = new OverlaySource(OverlayOrigin.Part, e.Diffuse, e.Normal, e.Stamp);
+            RgbaImage? colour, relief;
+            lock (cache.Lock)
+            {
+                colour = cache.Art(BodyPart.Chest, source, OverlaySources.DiffuseFile);
+                relief = cache.Art(BodyPart.Chest, source, OverlaySources.NormalFile);
+            }
+            if (colour == null)
+            {
+                writtenPlugins[e.Id] = (key, null);
+                continue;
+            }
+            Fade(colour, e.Opacity);
+            PngWriter.Write(colour, Path.Combine(artDir, "diffuse.png"));
+            string? normal = null;
+            if (relief != null)
+            {
+                Fade(relief, e.Opacity);
+                PngWriter.Write(relief, Path.Combine(artDir, "normal.png"));
+                normal = "normal.png";
+            }
+            PngWriter.Write(GlossMask(colour, 100), Path.Combine(artDir, "mask.png"));
+            var option = Descriptor(OptionName(e), $"art/{folder}", "diffuse.png", normal, bodyMaterials, skinToneMask: null);
+            options.Add(option);
+            writtenPlugins[e.Id] = (key, option);
+            Plugin.Log.Debug($"Cummy Layers: wrote plugin overlay {e.Id}.");
+        }
+    }
+
+    /// Scales the image's alpha to <paramref name="opacity"/> percent, in place (art from the cache is a fresh copy).
+    private static void Fade(RgbaImage image, int opacity)
+    {
+        if (opacity >= 100) return;
+        var rgba = image.Rgba;
+        for (int i = 3; i < rgba.Length; i += 4) rgba[i] = (byte)(rgba[i] * opacity / 100);
+    }
+
+    /// One sidecar option with a single Skin overlay from <paramref name="artDir"/> (relative to Proteus/).
+    private static Dictionary<string, object> Descriptor(string name, string artDir, string diffuse, string? normal,
+                                                         IReadOnlyList<string> bodyMaterials, float? skinToneMask)
     {
         var descriptor = new Dictionary<string, object>
         {
             ["Layer"] = "Skin",
             ["ManualShaderLock"] = false,
             ["MaterialGamePath"] = bodyMaterials,
-            ["Diffuse"] = $"art/{part.Id()}/{diffuse}",
+            ["Diffuse"] = $"{artDir}/{diffuse}",
             ["GenerateDiffuse"] = false,
             ["SourceBodyType"] = "bibo",
             ["ToeCapDensity"] = 0,
         };
         if (normal != null)
         {
-            descriptor["Normal"] = $"art/{part.Id()}/{normal}";
+            descriptor["Normal"] = $"{artDir}/{normal}";
             descriptor["NormalMode"] = "Compound";
         }
-        descriptor["Mask"] = $"art/{part.Id()}/mask.png";
-        if (look.SkinTone > 0) descriptor["SkinToneMask"] = 1f - look.SkinTone / 100f;
+        descriptor["Mask"] = $"{artDir}/mask.png";
+        if (skinToneMask is { } tone) descriptor["SkinToneMask"] = tone;
+        return new Dictionary<string, object> { ["Name"] = name, ["Overlays"] = new[] { descriptor } };
+    }
 
-        var option = new Dictionary<string, object> { ["Name"] = part.DisplayName(), ["Overlays"] = new[] { descriptor } };
+    /// One sidecar option: the part's descriptor, plus the look's Row 16 (what Proteus uses for an overlay without an
+    /// index map) and skin-tone strength. A default look adds nothing, so the sidecar is the same as without looks.
+    private static Dictionary<string, object> Option(BodyPart part, string diffuse, string? normal,
+                                                     IReadOnlyList<string> bodyMaterials, LayerLook look)
+    {
+        var option = Descriptor(part.DisplayName(), $"art/{part.Id()}", diffuse, normal, bodyMaterials,
+                                look.SkinTone > 0 ? 1f - look.SkinTone / 100f : null);
         if (!look.IsWhite || look.EffectiveOpacity != 0)
         {
             var (r, g, b) = look.TintRgb();

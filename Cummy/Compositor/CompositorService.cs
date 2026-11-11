@@ -79,9 +79,12 @@ public sealed class CompositorService : IDisposable
         public IEnumerable<Slot> Slots => new[] { Diffuse, Normal, Mask }.Where(s => s != null)!;
     }
 
+    /// <see cref="Sources"/> holds layered parts only; <see cref="PluginSources"/> every planned part's plugin
+    /// overlays (bottom first, with opacity 1-100), painted over the part's own layer.
     private sealed record Plan(
         Guid Collection, IReadOnlyList<BodyPart> Parts, IReadOnlyDictionary<BodyPart, OverlaySource> Sources,
-        IReadOnlyDictionary<BodyPart, LayerLook> Looks, IReadOnlyList<MaterialPlan> Materials, string Signature);
+        IReadOnlyDictionary<BodyPart, LayerLook> Looks, IReadOnlyDictionary<BodyPart, IReadOnlyList<(OverlaySource Source, int Opacity)>> PluginSources,
+        IReadOnlyList<MaterialPlan> Materials, string Signature);
 
     /// Waiting for Penumbra to serve (or stop serving) our file for <see cref="GamePath"/>, then redraw.
     private sealed record PendingLive(string GamePath, string? ExpectedFile, DateTime Deadline);
@@ -93,6 +96,9 @@ public sealed class CompositorService : IDisposable
     private readonly CompositeCache cache;
     /// Art changes whose cached overlays could not be freed at once because a composite held the cache.
     private readonly ConcurrentQueue<OverlayTarget> staleArt = new();
+    /// Plugin overlay art no longer used, freed the same way.
+    private readonly ConcurrentQueue<string> staleStamps = new();
+    private readonly PluginOverlays pluginOverlays;
 
     // Known once Penumbra reports its mod root.
     private string? modDir;
@@ -133,8 +139,9 @@ public sealed class CompositorService : IDisposable
     private readonly OverlayPackService pack;
 
     public CompositorService(PenumbraIpc penumbra, LayerState layers, IDataManager data, OverlaySources overlaySources,
-                             Configuration configuration, ProteusIpc proteus)
+                             Configuration configuration, ProteusIpc proteus, PluginOverlays pluginOverlays)
     {
+        this.pluginOverlays = pluginOverlays;
         this.penumbra = penumbra;
         this.layers = layers;
         this.data = data;
@@ -142,7 +149,7 @@ public sealed class CompositorService : IDisposable
         this.configuration = configuration;
         this.proteus = proteus;
         cache = new CompositeCache(overlaySources.RegionMapPath);
-        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers);
+        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers, pluginOverlays);
 
         // Older builds wrote their textures here and published a temporary mod; both are superseded.
         try
@@ -154,6 +161,7 @@ public sealed class CompositorService : IDisposable
 
         layers.Changed += OnLayersChanged;
         overlaySources.Changed += OnOverlayChanged;
+        pluginOverlays.Changed += OnPluginOverlaysChanged;
         proteus.AvailabilityChanged += Schedule;
         penumbra.Ready += Schedule;
         penumbra.ModSettingsChanged += OnModSettingsChanged;
@@ -168,6 +176,7 @@ public sealed class CompositorService : IDisposable
     {
         layers.Changed -= OnLayersChanged;
         overlaySources.Changed -= OnOverlayChanged;
+        pluginOverlays.Changed -= OnPluginOverlaysChanged;
         proteus.AvailabilityChanged -= Schedule;
         penumbra.Ready -= Schedule;
         penumbra.ModSettingsChanged -= OnModSettingsChanged;
@@ -214,6 +223,30 @@ public sealed class CompositorService : IDisposable
         else
         {
             staleArt.Enqueue(target);   // freed by the next composite
+        }
+        Schedule();
+    }
+
+    /// Another plugin's overlays changed: recomposite, freeing the art of one that was replaced or removed.
+    private void OnPluginOverlaysChanged(string? staleStamp)
+    {
+        if (staleStamp != null)
+        {
+            if (Monitor.TryEnter(cache.Lock))
+            {
+                try
+                {
+                    cache.ForgetStamp(staleStamp);
+                }
+                finally
+                {
+                    Monitor.Exit(cache.Lock);
+                }
+            }
+            else
+            {
+                staleStamps.Enqueue(staleStamp);
+            }
         }
         Schedule();
     }
@@ -285,7 +318,10 @@ public sealed class CompositorService : IDisposable
 
     private void Start()
     {
-        var parts = layers.Snapshot();
+        // Layered parts, and parts another plugin's overlay covers (shown even where nothing is layered).
+        var layered = layers.Snapshot();
+        var covered = pluginOverlays.Parts();
+        var parts = BodyParts.PaintOrder.Where(p => layered.Contains(p) || covered.Contains(p)).ToList();
         var bodyParts = parts.Where(p => !p.IsFacial()).ToList();
         var faceParts = parts.Where(p => p.IsFacial()).ToList();
 
@@ -342,7 +378,7 @@ public sealed class CompositorService : IDisposable
             }
             else
             {
-                ProteusStatus = pack.Apply(collection, bodyParts, bodyMaterials);
+                ProteusStatus = pack.Apply(collection, layered.Where(p => !p.IsFacial()).ToList(), bodyMaterials);
             }
             bodyParts = [];   // Cummy composites only the face
             parts = faceParts;
@@ -475,12 +511,16 @@ public sealed class CompositorService : IDisposable
     {
         // Each part's art and look are part of what the output depends on; shipped art with the default look keeps the
         // plain id (and file names).
-        var sources = parts.ToDictionary(p => p, p => overlaySources.Resolve(p, layers.Stage(p)));
+        var sources = parts.Where(layers.IsLayered).ToDictionary(p => p, p => overlaySources.Resolve(p, layers.Stage(p)));
         var looks = parts.ToDictionary(p => p, configuration.ResolveLook);
+        var plugins = parts.ToDictionary(p => p, pluginOverlays.SourcesFor);
+        string OwnKey(BodyPart p) => !sources.TryGetValue(p, out var s)
+            ? $"{p.Id()}!"   // not layered: only plugin overlays
+            : (s.Origin == OverlayOrigin.Shipped ? p.Id() : $"{p.Id()}={s.Stamp}")
+              + (s.Stage is > 0 and < BodyParts.MaxStages ? $"@{s.Stage}" : "")
+              + (looks[p].IsDefault ? "" : $"~{looks[p].Key}");
         string KeyOf(IEnumerable<BodyPart> ps) => string.Join(",", ps.Select(p =>
-            (sources[p].Origin == OverlayOrigin.Shipped ? p.Id() : $"{p.Id()}={sources[p].Stamp}")
-            + (sources[p].Stage is > 0 and < BodyParts.MaxStages ? $"@{sources[p].Stage}" : "")
-            + (looks[p].IsDefault ? "" : $"~{looks[p].Key}")));
+            OwnKey(p) + string.Concat(plugins[p].Select(x => $"+{x.Source.Stamp}%{x.Opacity}"))));
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var plans = new List<MaterialPlan>();
         var signature = new StringBuilder($"v{CompositeVersion}|{KeyOf(parts)}");
@@ -536,7 +576,8 @@ public sealed class CompositorService : IDisposable
             if (plan.Slots.Any()) plans.Add(plan);
         }
 
-        return new Plan(collection, parts, sources, looks, plans, signature.ToString());
+        return new Plan(collection, parts, sources, looks,
+                        plugins.ToDictionary(kv => kv.Key, kv => kv.Value), plans, signature.ToString());
     }
 
     // ── Compositing (background) ─────────────────────────────────────────────
@@ -548,13 +589,15 @@ public sealed class CompositorService : IDisposable
         {
             while (staleArt.TryDequeue(out var stale))
                 cache.Forget(stale);
+            while (staleStamps.TryDequeue(out var stamp))
+                cache.ForgetStamp(stamp);
 
             var redirects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var material in plan.Materials)
             {
                 ct.ThrowIfCancellationRequested();
                 if (!material.Slots.All(s => File.Exists(s.OutFile)))
-                    CompositeMaterial(material, plan.Sources, plan.Looks, ct);
+                    CompositeMaterial(material, plan, ct);
                 foreach (var slot in material.Slots)
                     if (File.Exists(slot.OutFile))
                         redirects[slot.GamePath] = slot.OutFile;
@@ -563,9 +606,9 @@ public sealed class CompositorService : IDisposable
         }
     }
 
-    private void CompositeMaterial(MaterialPlan material, IReadOnlyDictionary<BodyPart, OverlaySource> sources,
-                                   IReadOnlyDictionary<BodyPart, LayerLook> looks, CancellationToken ct)
+    private void CompositeMaterial(MaterialPlan material, Plan plan, CancellationToken ct)
     {
+        var (sources, looks, plugins) = (plan.Sources, plan.Looks, plan.PluginSources);
         var started = DateTime.UtcNow;
         var parts = material.Parts;
 
@@ -603,6 +646,18 @@ public sealed class CompositorService : IDisposable
         }
         static RgbaImage Copy(RgbaImage img) => new((byte[])img.Rgba.Clone(), img.Width, img.Height);
 
+        // A part's art for one channel, bottom first: its own layer (if layered) with the wearer's look, then each plugin
+        // overlay untinted at its own opacity (colour, relief and gloss alike).
+        IEnumerable<OverlayCrop> Layers(BodyPart part, string file, int w, int h, Func<OverlayCrop, OverlayCrop> ownLook)
+        {
+            if (sources.TryGetValue(part, out var own) && cache.Overlay(part, own, file, w, h, face) is { } art)
+                yield return ownLook(art);
+            if (!plugins.TryGetValue(part, out var extra)) yield break;
+            foreach (var (source, opacity) in extra)
+                if (cache.Overlay(part, source, file, w, h, face) is { } pa)
+                    yield return Faded(pa, opacity - 100);
+        }
+
         var diffuseBase = Base(material.Diffuse);
         var normalBase = Base(material.Normal);
         var maskBase = Base(material.Mask);
@@ -616,10 +671,12 @@ public sealed class CompositorService : IDisposable
             foreach (var part in parts)
             {
                 ct.ThrowIfCancellationRequested();
-                if (cache.Overlay(part, sources[part], OverlaySources.DiffuseFile, diffuse.Width, diffuse.Height, face) is not { } art) continue;
-                var ov = Tinted(art, looks[part]);
-                OverlayBlend.AlphaCompositeRegion(diffuse.Rgba, diffuse.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
-                diffuseRegions.Add(ov);
+                foreach (var ov in Layers(part, OverlaySources.DiffuseFile, diffuse.Width, diffuse.Height,
+                                          art => Tinted(art, looks[part])))
+                {
+                    OverlayBlend.AlphaCompositeRegion(diffuse.Rgba, diffuse.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
+                    diffuseRegions.Add(ov);
+                }
             }
         }
 
@@ -633,11 +690,13 @@ public sealed class CompositorService : IDisposable
             foreach (var part in parts)
             {
                 ct.ThrowIfCancellationRequested();
-                if (cache.Overlay(part, sources[part], OverlaySources.NormalFile, normal.Width, normal.Height, face) is not { } art) continue;
-                var ov = Faded(art, looks[part].EffectiveOpacity);
-                OverlayBlend.CompoundNormalRegion(normal.Rgba, normal.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
-                OverlayBlend.AccumulateCoverageRegion(coverage, normal.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
-                normalRegions.Add(ov);
+                foreach (var ov in Layers(part, OverlaySources.NormalFile, normal.Width, normal.Height,
+                                          art => Faded(art, looks[part].EffectiveOpacity)))
+                {
+                    OverlayBlend.CompoundNormalRegion(normal.Rgba, normal.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
+                    OverlayBlend.AccumulateCoverageRegion(coverage, normal.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H);
+                    normalRegions.Add(ov);
+                }
             }
             if (diffuse != null && normalRegions.Count > 0)
             {
@@ -668,10 +727,12 @@ public sealed class CompositorService : IDisposable
             foreach (var part in parts)
             {
                 ct.ThrowIfCancellationRequested();
-                if (cache.Overlay(part, sources[part], OverlaySources.DiffuseFile, mask.Width, mask.Height, face) is not { } art) continue;
-                var ov = GlossWeight(art, looks[part]);
-                OverlayBlend.GlossRegion(mask.Rgba, mask.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H, GlossSpecular, GlossRoughness);
-                maskRegions.Add(ov);
+                foreach (var ov in Layers(part, OverlaySources.DiffuseFile, mask.Width, mask.Height,
+                                          art => GlossWeight(art, looks[part])))
+                {
+                    OverlayBlend.GlossRegion(mask.Rgba, mask.Width, ov.Rgba, ov.X, ov.Y, ov.W, ov.H, GlossSpecular, GlossRoughness);
+                    maskRegions.Add(ov);
+                }
             }
         }
 

@@ -187,6 +187,23 @@ public sealed class OverlaySources
             return $"couldn't read {Path.GetFileName(source)} ({ex.Message}).";
         }
 
+        if (CheckImage(bytes, normal) is { } problem) return problem;
+
+        var dir = Dir(part);
+        Directory.CreateDirectory(dir);
+        var kind = normal ? "normal" : "diffuse";
+        var temp = Path.Combine(dir, $".import-{kind}{ext}");
+        File.WriteAllBytes(temp, bytes);
+        foreach (var old in Directory.EnumerateFiles(dir, kind + ".*").ToList())
+            File.Delete(old);
+        File.Move(temp, Path.Combine(dir, kind + ext), overwrite: true);
+        return null;
+    }
+
+    /// Null when <paramref name="bytes"/> is an image Cummy can composite (decodable, at most <see cref="MaxSide"/> a
+    /// side, and for a colour image some visible coverage), else a short reason. Shared with other plugins' overlays.
+    public static string? CheckImage(byte[] bytes, bool normal)
+    {
         if (ImageInfo.FromStream(new MemoryStream(bytes)) is not { } info) return "that file isn't an image Cummy can read.";
         if (info.Width > MaxSide || info.Height > MaxSide)
             return $"it is {info.Width}×{info.Height}; the limit is {MaxSide}×{MaxSide}.";
@@ -202,17 +219,15 @@ public sealed class OverlaySources
         }
         if (!normal && !HasCoverage(image.Data))
             return "it has no visible coverage (its alpha is zero everywhere).";
-
-        var dir = Dir(part);
-        Directory.CreateDirectory(dir);
-        var kind = normal ? "normal" : "diffuse";
-        var temp = Path.Combine(dir, $".import-{kind}{ext}");
-        File.WriteAllBytes(temp, bytes);
-        foreach (var old in Directory.EnumerateFiles(dir, kind + ".*").ToList())
-            File.Delete(old);
-        File.Move(temp, Path.Combine(dir, kind + ext), overwrite: true);
         return null;
     }
+
+    /// Whether <paramref name="path"/> has one of the <see cref="Extensions"/> Cummy reads.
+    public static bool IsImagePath(string path) => Extensions.Contains(Path.GetExtension(path).ToLowerInvariant());
+
+    /// Identifies a file's content by size and write time (art stamps).
+    public static string FileStamp(string path)
+        => File.Exists(path) ? $"{new FileInfo(path).Length}.{File.GetLastWriteTimeUtc(path).Ticks}" : "none";
 
     private static bool HasCoverage(byte[] rgba)
     {

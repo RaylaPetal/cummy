@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.6.0.0/Cummy-2.6.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.6.0.0/Cummy-2.6.0.0.zip",
-    "Changelog": "- New Public mode (Settings, General, Who can layer me): anyone with Cummy nearby can layer or lick you without pairing, and you can layer anyone nearby. Pairing mode, the default, works as before. Your blocks and range still apply.\n- New blacklist: blacklisted players can never layer, lick or invite you until you remove them. Add people in settings by Name@World, or hold Ctrl and click Blacklist in the droplet menu. Blacklisting a partner unpairs them.\n- The right-click Cummy menu is gone. Use the droplet button instead: it shows whenever someone is nearby and lets you pair, layer, lick or blacklist them. Clean yourself from /cummy or with /cummy clean.",
+    "Changelog": "- Other plugins can now build on Cummy: they can read your layers, react when they change, and layer, lick or clean you under your usual rules. They can never change your blocks, mode, blacklist or partners.\n- Plugins built on Cummy can send messages to the same plugin on a paired partner's game, over Cummy's hidden tells. Turn this off in Settings, General, Other plugins.\n- Plugins can show their own overlays on you (mud, paint...) above your layers, with or without Proteus. They're never saved, and you can see and remove each one, or turn them all off, in Settings, General, Other plugins.",
     "LastUpdate": "1794144577"
   }
 ]

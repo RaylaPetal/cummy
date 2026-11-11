@@ -101,6 +101,15 @@ public sealed class CompositeCache
         images.Clear();
     }
 
+    /// Frees cached art of one source (a plugin overlay that was replaced or removed). Memory only.
+    public void ForgetStamp(string stamp)
+    {
+        foreach (var key in overlays.Keys.Where(k => k.Stamp == stamp).ToList())
+            overlays.Remove(key);
+        foreach (var key in images.Keys.Where(k => k.Stamp == stamp).ToList())
+            images.Remove(key);
+    }
+
     /// <paramref name="part"/>'s <paramref name="file"/> overlay (<see cref="OverlaySources.DiffuseFile"/> or
     /// <see cref="OverlaySources.NormalFile"/>) from <paramref name="source"/> at <paramref name="w"/>×<paramref name="h"/>,
     /// cropped to its coverage; null when it has none or cannot be loaded.
@@ -112,8 +121,10 @@ public sealed class CompositeCache
         var key = (part, file, source.Stamp, w, h, face?.Stamp ?? "", stage);
         if (overlays.TryGetValue(key, out var hit)) return hit;
 
-        // A part only ever shows one stage: drop its other stages' crops of this file and size.
-        foreach (var old in overlays.Keys.Where(k => k.Part == part && k.File == file && k.W == w && k.H == h && k.Stage != stage).ToList())
+        // A part only ever shows one stage of its art: drop that art's other stages' crops of this file and size. Other
+        // art on the same part (another plugin's overlay) keeps its crops.
+        foreach (var old in overlays.Keys.Where(k => k.Part == part && k.File == file && k.W == w && k.H == h
+                                                     && k.Stage != stage && k.Stamp == source.Stamp).ToList())
             overlays.Remove(old);
         var crop = LoadCrop(part, source, file, w, h, face);
         overlays[key] = crop;

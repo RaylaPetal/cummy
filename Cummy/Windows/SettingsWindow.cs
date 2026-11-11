@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using Cummy.Compositor;
 using Cummy.Ipc;
+using Cummy.Messaging;
 using Cummy.Pairing;
 using Cummy.State;
 using Dalamud.Bindings.ImGui;
@@ -35,10 +37,16 @@ public sealed class SettingsWindow : ThemedWindow
     /// The look being edited: shown while a control is dragged, saved and applied only when it is released.
     private LayerLook? lookDraft;
 
+    private readonly PluginRelay relay;
+    private readonly PluginOverlays pluginOverlays;
+
     public SettingsWindow(Configuration configuration, LayerState layers, PairingService pairing, OverlaySources overlaySources,
-                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip, CummyApi api)
+                          CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip, CummyApi api,
+                          PluginRelay relay, PluginOverlays pluginOverlays)
         : base("Cummy Settings###CummySettings")
     {
+        this.pluginOverlays = pluginOverlays;
+        this.relay = relay;
         this.drip = drip;
         this.api = api;
         this.compositor = compositor;
@@ -127,7 +135,7 @@ public sealed class SettingsWindow : ThemedWindow
         DrawDebugStranger();
         ImGuiHelpers.ScaledDummy(4f);
         if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, "Clean everything"))
-            layers.CleanAll();
+            layers.CleanAll(LayerChange.Of(ChangeCause.Clean));
         ImGui.SameLine();
         using (ImRaii.Disabled(!configuration.DripEnabled))
         {
@@ -151,36 +159,111 @@ public sealed class SettingsWindow : ThemedWindow
         DrawDebugApi();
     }
 
-    /// Call Cummy.SendLayer as another plugin would, and show what its OnLayerReceived subscribers get. The layer
-    /// buttons above in "They layer me" mode raise the event.
+    /// Every Cummy.* endpoint called through the published client (Cummy.Api/CummyIpc.cs), as another plugin would,
+    /// and what its event subscribers receive.
     private void DrawDebugApi()
     {
-        Ui.Heading("Plugin API");
+        var c = api.DebugClient;
+        Ui.Heading($"Plugin API (v{c.ApiVersion()})");
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
         ImGui.InputTextWithHint("##debugApiTarget", "Name Surname@World", ref debugApiTarget, 64);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(60 * ImGuiHelpers.GlobalScale);
         ImGui.InputTextWithHint("##debugApiPart", "part id", ref debugApiPart, 8);
         ImGui.SameLine();
-        if (ImGui.Button("SendLayer##debugApi"))
-        {
-            var at = debugApiTarget.IndexOf('@');
-            debugApiOutcome = at > 0
-                ? api.SendLayer(debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim(), debugApiPart.Trim())
-                : "enter Name Surname@World";
-        }
+        ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt("stage##debugApiStage", ref debugApiStage);
+
+        var at = debugApiTarget.IndexOf('@');
+        var (name, world) = at > 0 ? (debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim()) : ("", "");
+        var part = debugApiPart.Trim();
+        void Show(string call, string outcome) => debugApiOutcome = $"{call}: {outcome}";
+
+        if (ImGui.Button("SendLayer##debugApi")) Show("SendLayer", c.SendLayer(name, world, part));
+        ImGui.SameLine();
+        if (ImGui.Button("CanLayer##debugApi")) Show("CanLayer", c.CanLayer(name, world, part));
         ImGui.SameLine();
         if (ImGui.Button("LayerSelf##debugApi"))
-        {
-            var at = debugApiTarget.IndexOf('@');
-            debugApiOutcome = at > 0
-                ? api.LayerSelf(debugApiPart.Trim(), debugApiTarget[..at].Trim(), debugApiTarget[(at + 1)..].Trim())
-                : api.LayerSelf(debugApiPart.Trim(), "Debug Partner", "Debug");
-        }
-        if (debugApiOutcome.Length > 0) Ui.Muted($"Outcome: {debugApiOutcome}");
-        Ui.Muted($"GetLayerCount: {api.GetLayerCount()}   Last OnLayersChanged: {api.DebugLastLayersChanged}");
+            Show("LayerSelf", at > 0 ? c.LayerSelf(part, name, world) : c.LayerSelf(part, "Debug Partner", "Debug"));
+        ImGui.SameLine();
+        if (ImGui.Button("SendLick##debugApi")) Show("SendLick", c.SendLick(name, world, part));
+        ImGui.SameLine();
+        if (ImGui.Button("Invite##debugApi")) Show("Invite", c.Invite(name, world));
+
+        if (ImGui.Button("CleanSelf part##debugApi")) Show("CleanSelf", c.CleanSelf(part));
+        ImGui.SameLine();
+        if (ImGui.Button("CleanSelf all##debugApi")) Show("CleanSelf all", c.CleanSelf("all"));
+        ImGui.SameLine();
+        if (ImGui.Button("RinseSelf##debugApi")) Show("RinseSelf", c.RinseSelf());
+        ImGui.SameLine();
+        if (ImGui.Button("SetStage##debugApi")) Show("SetStage", c.SetStage(part, debugApiStage, name, world));
+        ImGui.SameLine();
+        if (ImGui.Button("LayerSelf off-thread##debugApi"))
+            System.Threading.Tasks.Task.Run(() => c.LayerSelf(part, "Debug Partner", "Debug"))
+                  .ContinueWith(t => Show("LayerSelf off-thread", t.Result));
+        if (debugApiOutcome.Length > 0) Ui.Muted(debugApiOutcome);
+
+        var cleaning = c.GetCleaning();
+        Ui.Muted($"GetLayerCount: {c.GetLayerCount()}   Last OnLayersChanged: {api.DebugLastLayersChanged}");
+        Ui.Muted($"GetStages: {{{string.Join(", ", c.GetStages().Select(kv => $"{kv.Key}:{kv.Value}"))}}}   "
+                 + $"GetStage({part}): {c.GetStage(part)}");
+        Ui.Muted($"GetBlockedParts: [{string.Join(", ", c.GetBlockedParts())}]   GetAccessMode: {c.GetAccessMode()}   "
+                 + $"IsBlacklisted: {c.IsBlacklisted(name, world)}");
+        Ui.Muted($"GetPartners: {string.Join("; ", c.GetPartners().Select(p => $"{p.Name}@{p.World} [{string.Join(",", p.Blocked)}]"))}");
+        Ui.Muted($"GetNearby: {string.Join("; ", c.GetNearby().Select(n => $"{n.Name}@{n.World}{(n.Partner ? " (partner)" : "")}"))}");
+        Ui.Muted($"GetCleaning: dry {cleaning.DryOff} {cleaning.DryMinutes}m, water {cleaning.WashWater}, rain {cleaning.WashRain}, "
+                 + $"drip {cleaning.Drip}, manual {cleaning.ManualClean}");
+        Ui.Muted($"GetParts: {string.Join(" ", c.GetParts().Select(p => p.IsTarget ? $"{p.Id}*" : $"{p.Id}/{p.Stages}{(p.Facial ? "f" : "")}"))}");
+        DrawDebugMessaging(c, name, world);
+
         Ui.Muted("OnLayerReceived:");
-        foreach (var line in api.DebugLog) Ui.Muted(line);
+        foreach (var line in api.DebugLog) Ui.Muted("  " + line);
+        Ui.Muted("OnPartChanged:");
+        foreach (var line in api.DebugPartLog) Ui.Muted("  " + line);
+        Ui.Muted("Other events:");
+        foreach (var line in api.DebugEventLog) Ui.Muted("  " + line);
+    }
+
+    /// The relay: the wire round-trip, a burst of sends (only two may wait at once), and a partner's message through the
+    /// real receive checks.
+    private void DrawDebugMessaging(CummyIpcClient.CummyIpc c, string name, string world)
+    {
+        ImGui.SetNextItemWidth(90 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##debugChannel", "channel", ref debugChannel, 32);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##debugPayload", "payload", ref debugPayload, 256);
+        ImGui.SameLine();
+        if (ImGui.Button("SendMessage##debugApi"))
+            debugApiOutcome = $"SendMessage: {c.SendMessage(name, world, debugChannel, debugPayload)}";
+        ImGui.SameLine();
+        if (ImGui.Button("x4##debugApi"))
+            debugApiOutcome = "SendMessage x4: " + string.Join(", ",
+                Enumerable.Range(0, 4).Select(_ => c.SendMessage(name, world, debugChannel, debugPayload)));
+        ImGui.SameLine();
+        if (ImGui.Button("As them##debugApi"))
+            debugApiOutcome = $"Simulated message: {relay.SimulateFrom(name, world, debugChannel, debugPayload)}";
+        if (ImGui.Button("SetOverlay test##debugApi"))
+        {
+            // A shipped part image as Cummy's own test overlay, on the part in the box ("full" uses Chest's image whole).
+            var art = BodyParts.TryParseId(debugApiPart.Trim(), out var p) && p != BodyPart.FullBody ? p : BodyPart.Chest;
+            var file = Path.Combine(Plugin.PluginInterface.AssemblyLocation.Directory!.FullName, "Assets", art.Id(),
+                                    OverlaySources.DiffuseFile);
+            debugApiOutcome = $"SetOverlay: {c.SetOverlay("Cummy", "debug", debugApiPart.Trim(), file, "", debugOverlayOpacity)}";
+        }
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(80 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt("%##debugOverlayOpacity", ref debugOverlayOpacity);
+        ImGui.SameLine();
+        if (ImGui.Button("RemoveOverlay##debugApi")) debugApiOutcome = $"RemoveOverlay: {c.RemoveOverlay("Cummy", "debug")}";
+        ImGui.SameLine();
+        if (ImGui.Button("ClearOverlays##debugApi")) debugApiOutcome = $"ClearOverlays: {c.ClearOverlays("Cummy")}";
+        Ui.Muted($"GetOverlays: {string.Join("; ", c.GetOverlays().Select(o => $"{o.Owner}/{o.Key} on {o.Target}"))}");
+
+        var wire = Cummy.Messaging.Protocol.Message(debugChannel, debugPayload);
+        Ui.Muted(wire == null
+            ? $"Wire: invalid ({debugPayload.Length} chars)"
+            : $"Wire: {wire} -> {(Cummy.Messaging.Protocol.Parse(wire) is { } m ? $"[{m.Channel}] {m.Payload}" : "unparsed")}");
     }
 
     /// Act as any `Name@World` (paired or not, blacklisted or not) through the real access checks: Public mode, pairing
@@ -208,6 +291,10 @@ public sealed class SettingsWindow : ThemedWindow
     private string debugApiTarget = "";
     private string debugApiPart = "ch";
     private string debugApiOutcome = "";
+    private int debugApiStage = 1;
+    private string debugChannel = "scene";
+    private string debugPayload = "start 42";
+    private int debugOverlayOpacity = 100;
 #endif
 
     // ── General ──────────────────────────────────────────────────────────────
@@ -216,6 +303,8 @@ public sealed class SettingsWindow : ThemedWindow
     {
         ImGuiHelpers.ScaledDummy(4f);
         DrawAccess();
+        ImGuiHelpers.ScaledDummy(8f);
+        DrawPlugins();
         ImGuiHelpers.ScaledDummy(8f);
 
         Ui.Heading("Compositing");
@@ -339,6 +428,49 @@ public sealed class SettingsWindow : ThemedWindow
             configuration.LockQuickLayerButton = locked;
             configuration.Save();
         }
+    }
+
+    /// What other plugins may do through Cummy: message partners' plugins, and show their own overlays on you.
+    private void DrawPlugins()
+    {
+        Ui.Heading("Other plugins");
+        var relayOn = configuration.RelayPluginMessages;
+        if (ImGui.Checkbox("Relay messages for other plugins", ref relayOn))
+        {
+            configuration.RelayPluginMessages = relayOn;
+            configuration.Save();
+        }
+        ImGuiComponents.HelpMarker("Lets plugins built on Cummy talk to the same plugin on your partners' games, over "
+                                 + "Cummy's hidden tells. Only between paired partners, never with anyone you blacklisted.");
+
+        var show = configuration.ShowPluginOverlays;
+        if (ImGui.Checkbox("Show overlays from other plugins", ref show))
+        {
+            configuration.ShowPluginOverlays = show;
+            configuration.Save();
+            pluginOverlays.SettingChanged();
+        }
+        ImGuiComponents.HelpMarker("Plugins built on Cummy can paint their own art on you (mud, paint...), above your "
+                                 + "layers. They're never saved: each plugin puts its own back while it's running.");
+
+        var all = pluginOverlays.All;
+        if (all.Count == 0)
+        {
+            Ui.Muted("No plugin overlays right now.");
+            return;
+        }
+        PluginOverlay? remove = null;
+        foreach (var e in all)
+        {
+            using var id = ImRaii.PushId($"pluginOverlay{e.Id}");
+            if (ImGuiComponents.IconButton(FontAwesomeIcon.Trash)) remove = e;
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Remove this overlay");
+            ImGui.SameLine();
+            var where = e.Part is { } part ? part.DisplayName() : "Full body";
+            var state = !e.Ready ? " (checking...)" : !show ? " (hidden)" : "";
+            ImGui.TextUnformatted($"{e.Owner} / {e.Key} - {where}, {e.Opacity}%{state}");
+        }
+        if (remove != null) pluginOverlays.Remove(remove.Owner, remove.Key);
     }
 
     /// Who can layer me: Pairing or Public mode, and the blacklist. Both belong to the logged-in character.

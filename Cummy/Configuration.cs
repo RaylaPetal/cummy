@@ -84,6 +84,12 @@ public class Configuration : IPluginConfiguration
     public Guid MoodleId { get; set; } = Guid.Empty;
     public string MoodleTitle { get; set; } = string.Empty;
 
+    /// Other plugins may message the same plugin on a paired partner's client through Cummy (PluginRelay), both ways.
+    public bool RelayPluginMessages { get; set; } = true;
+
+    /// Other plugins' overlays (PluginOverlays) are composited on the wearer.
+    public bool ShowPluginOverlays { get; set; } = true;
+
     /// How layers look on the wearer's body (colour, opacity, shine, skin tone), in both compositing modes.
     public LayerLook Look { get; set; } = new();
 

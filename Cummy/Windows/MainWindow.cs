@@ -100,7 +100,7 @@ public sealed class MainWindow : ThemedWindow
             Ui.AlignRight(Ui.IconButtonWithTextWidth(FontAwesomeIcon.Broom, label));
             using (Ui.AccentButton())
             {
-                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, label) && layers.CleanAll())
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, label) && layers.CleanAll(LayerChange.Of(ChangeCause.Clean)))
                     Notifier.Info("All cleaned up.");
             }
         });
@@ -181,7 +181,7 @@ public sealed class MainWindow : ThemedWindow
 
     private void Clean(BodyPart part)
     {
-        if (layers.Clean(part)) Notifier.Info($"Cleaned your {part.DisplayName().ToLowerInvariant()}.");
+        if (layers.Clean(part, LayerChange.Of(ChangeCause.Clean))) Notifier.Info($"Cleaned your {part.DisplayName().ToLowerInvariant()}.");
     }
 
     /// "12m ago", plus the time left before it dries when drying off is on (amber in its last 5 minutes).
