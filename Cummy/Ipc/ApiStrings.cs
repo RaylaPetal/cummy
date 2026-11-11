@@ -37,6 +37,11 @@ public static class ApiStrings
     public const string Unchanged = "unchanged";
     public const string InvalidStage = "invalid-stage";
 
+    // Creampies (SendCreampie, CreampieSelf, GetCreampies, OnCreampieChanged).
+    public const string Creampied = "creampied";
+    public const string Refreshed = "refreshed";
+    public const string UnknownHole = "unknown-hole";
+
     // Overlays (SetOverlay).
     public const string Accepted = "accepted";
     public const string TooMany = "too-many";
@@ -64,6 +69,9 @@ public static class ApiStrings
     public const string CauseDry = "dry";
     public const string CauseClean = "clean";
     public const string CausePlugin = "plugin";
+    public const string CauseCreampie = "creampie";
+    public const string CauseTimer = "timer";
+    public const string CauseWash = "wash";
 
     public static string Cause(ChangeCause cause) => cause switch
     {
@@ -75,6 +83,17 @@ public static class ApiStrings
         ChangeCause.Kiss => CauseKiss,
         ChangeCause.Dry => CauseDry,
         ChangeCause.Clean => CauseClean,
+        ChangeCause.Creampie => CauseCreampie,
+        _ => CausePlugin,
+    };
+
+    public static string Cause(CreampieCause cause) => cause switch
+    {
+        CreampieCause.Creampie => CauseCreampie,
+        CreampieCause.Timer => CauseTimer,
+        CreampieCause.Wash => CauseWash,
+        CreampieCause.Lick => CauseLick,
+        CreampieCause.Clean => CauseClean,
         _ => CausePlugin,
     };
 }

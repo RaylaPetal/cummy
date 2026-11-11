@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using Cummy.State;
 using System.Security.Cryptography;
 
 namespace Cummy.Messaging;
@@ -18,15 +19,17 @@ public enum Verb
     Licked,
     /// Another plugin's message, relayed between partners (PluginRelay).
     Extension,
+    /// A creampie of the receiver's pussy or ass.
+    Creampie,
 }
 
 public sealed record ProtocolMessage(Verb Verb, string? Nonce = null, int BlockMask = 0, BodyPart Part = default,
-                                     string? Channel = null, string? Payload = null);
+                                     string? Channel = null, string? Payload = null, Hole Hole = default);
 
 /// The `cmy1` tell format: `cmy1 inv <nonce> <mask>`, `cmy1 acc <nonce> <mask>`, `cmy1 unp`, `cmy1 lay <part>`,
 /// `cmy1 blk <mask>`, `cmy1 blx <mask>`, `cmy1 bly <mask>`, `cmy1 lck <part>` (a lick of the receiver's
 /// part), `cmy1 lkd <part>` (the licked wearer's reply that it cleaned that part), `cmy1 ext <channel> <payload>` (another
-/// plugin's message, see <see cref="Message"/>). Short lowercase ASCII only, so ChatSender can whitelist
+/// plugin's message, see <see cref="Message"/>), `cmy1 crp <pu|as>` (a creampie of the receiver's pussy or ass). Short lowercase ASCII only, so ChatSender can whitelist
 /// it exactly. Each block message carries only the bits every version that understands it accepts, because those
 /// versions reject the whole message otherwise (and would refuse to pair): `inv`/`acc`/`blk` the first body parts
 /// (<see cref="BodyParts.LegacyBodyMask"/>), `blx` those plus the facial parts (<see cref="BodyParts.ExtendedMask"/>),
@@ -54,6 +57,7 @@ public static class Protocol
     public static string Layer(BodyPart part) => $"{Prefix} lay {part.Id()}";
     public static string Lick(BodyPart part) => $"{Prefix} lck {part.Id()}";
     public static string Licked(BodyPart part) => $"{Prefix} lkd {part.Id()}";
+    public static string Creampie(Hole hole) => $"{Prefix} crp {hole.Id()}";
     public static string Block(int blockMask) => $"{Prefix} blk {Mask(blockMask & BodyParts.LegacyBodyMask)}";
     public static string BlockExtended(int blockMask) => $"{Prefix} blx {Mask(blockMask & BodyParts.ExtendedMask)}";
     public static string BlockAll(int blockMask) => $"{Prefix} bly {Mask(blockMask)}";
@@ -85,7 +89,7 @@ public static class Protocol
     {
         Verb.Block => BodyParts.LegacyBodyMask,
         Verb.BlockExtended => BodyParts.ExtendedMask,
-        Verb.BlockAll => BodyParts.AllMask,
+        Verb.BlockAll => BodyParts.WireMask,
         _ => 0,
     };
 
@@ -96,7 +100,7 @@ public static class Protocol
     {
         if (BodyPart.Face.IsBlockedBy(mask)) mask |= BodyPart.Forehead.Bit();
         else mask &= ~BodyPart.Forehead.Bit();
-        return (mask & BodyParts.AllMask & ~BodyPart.FullBody.Bit()).ToString("x", CultureInfo.InvariantCulture);
+        return (mask & BodyParts.WireMask & ~BodyPart.FullBody.Bit()).ToString("x", CultureInfo.InvariantCulture);
     }
 
     /// Whether a tell belongs to this plugin at all: `cmy` followed by a version number. Such tells are hidden
@@ -128,6 +132,8 @@ public static class Protocol
                 return new ProtocolMessage(Verb.Layer, Part: part);
             case "lck" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var licked):
                 return new ProtocolMessage(Verb.Lick, Part: licked);
+            case "crp" when parts.Length == 3 && Holes.TryParseId(parts[2], out var hole):
+                return new ProtocolMessage(Verb.Creampie, Hole: hole);
             case "lkd" when parts.Length == 3 && BodyParts.TryParseId(parts[2], out var confirmed):
                 return new ProtocolMessage(Verb.Licked, Part: confirmed);
             case "blk" when parts.Length == 3 && TryMask(parts[2], out var blkMask):
@@ -137,7 +143,7 @@ public static class Protocol
             case "ext" when parts.Length >= 4 && IsChannel(parts[2]) && IsPayload(string.Join(' ', parts[3..])):
                 return new ProtocolMessage(Verb.Extension, Channel: parts[2], Payload: string.Join(' ', parts[3..]));
             case "bly" when parts.Length == 3 && TryMask(parts[2], out var blyMask, MaxMaskDigits):
-                return new ProtocolMessage(Verb.BlockAll, BlockMask: blyMask & BodyParts.AllMask);
+                return new ProtocolMessage(Verb.BlockAll, BlockMask: blyMask & BodyParts.WireMask);
             default:
                 return null;
         }

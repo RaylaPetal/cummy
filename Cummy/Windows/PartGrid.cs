@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Cummy.Pairing;
+using Cummy.State;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Interface.Utility;
@@ -44,9 +45,32 @@ internal static class PartGrid
                         : $"{peer.Name} has blocked this part.");
                 else if (part == BodyPart.FullBody)
                     ImGui.SetTooltip($"Layers every part {peer.Name} hasn't blocked, face included, one stage each.");
-                else if (!lick && part.NeedsRecentPartner())
-                    ImGui.SetTooltip($"{part.DisplayName()} needs an up-to-date Cummy on {peer.Name}'s side too.");
             }
+        }
+    }
+
+    /// The Creampie buttons (Pussy, Ass) for <paramref name="peer"/>, side by side. A partner's known creampie blocks
+    /// disable that hole (a stranger's are unknown); everything is disabled unless <paramref name="enabled"/>.
+    public static void DrawHoles(PeerRecord? peer, bool enabled, Action<Hole> send, string id, bool isPartner = true)
+    {
+        var size = new Vector2(130 * ImGuiHelpers.GlobalScale, 0);
+        ImGuiHelpers.ScaledDummy(2f);
+        using var table = ImRaii.Table($"##holes{id}", 2);
+        if (!table) return;
+        foreach (var hole in Holes.All)
+        {
+            ImGui.TableNextColumn();
+            var blocked = isPartner && peer != null && hole.IsBlockedBy(peer.BlockMask);
+            using (ImRaii.Disabled(!enabled || peer == null || blocked))
+            {
+                if (ImGui.Button(blocked ? $"{hole.DisplayName()} (blocked)##{id}{hole.Id()}" : $"{hole.DisplayName()}##{id}{hole.Id()}", size))
+                    send(hole);
+            }
+            if (peer != null && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip(blocked
+                    ? $"{peer.Name} has blocked this."
+                    : $"Makes their {hole.DisplayName().ToLowerInvariant()} drip for a while and layers their "
+                      + $"{hole.Part().DisplayName().ToLowerInvariant()}.");
         }
     }
 

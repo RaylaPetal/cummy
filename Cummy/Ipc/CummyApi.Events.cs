@@ -43,6 +43,7 @@ public sealed partial class CummyApi
         pairing.LickResult -= OnLickResult;
         UnhookMessaging();
         UnhookOverlays();
+        UnhookCreampie();
     }
 
     /// One OnPartChanged per changed part, in paint order.

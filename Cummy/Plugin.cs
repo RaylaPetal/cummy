@@ -39,6 +39,10 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ChatSender sender;
     private readonly ChatListener listener;
     private readonly PairingService pairing;
+    private readonly CreampieService creampies;
+    private readonly GlamourerIpc glamourer;
+    private readonly DripVfx dripVfx;
+    private readonly DripRings dripRings;
     private readonly PenumbraIpc penumbra;
     private readonly Cummy.Proteus.ProteusIpc proteus;
     private readonly OverlaySources overlaySources;
@@ -66,22 +70,27 @@ public sealed class Plugin : IDalamudPlugin
         drip = new DripService(Configuration, layers);
         sender = new ChatSender();
         listener = new ChatListener();
-        pairing = new PairingService(Configuration, layers, sender, listener);
+        creampies = new CreampieService(Configuration, layers);
+        pairing = new PairingService(Configuration, layers, sender, listener, creampies);
         penumbra = new PenumbraIpc(PluginInterface);
         overlaySources = new OverlaySources(Configuration);
         proteus = new Cummy.Proteus.ProteusIpc(PluginInterface);
         pluginOverlays = new PluginOverlays(Configuration, PluginInterface);
         managedMod = new ManagedMod(penumbra);
+        glamourer = new GlamourerIpc(PluginInterface);
+        dripRings = new DripRings(Configuration, layers, creampies, glamourer);
+        dripVfx = new DripVfx(managedMod, dripRings, penumbra);   // rebuilds the effects before the rings move
         compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus, pluginOverlays,
                                            managedMod);
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
         relay = new PluginRelay(Configuration, layers, sender, listener);
-        api = new CummyApi(Configuration, pairing, layers, relay, pluginOverlays);
+        api = new CummyApi(Configuration, pairing, layers, relay, pluginOverlays, creampies);
 
-        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api, relay, pluginOverlays);
+        settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api, relay, pluginOverlays, creampies,
+                                          dripRings);
         pickerWindow = new LayerPickerWindow(pairing);
-        mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi);
+        mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi, creampies);
         inviteWindow = new InviteWindow(pairing);
         WindowSystem.AddWindow(mainWindow);
         WindowSystem.AddWindow(settingsWindow);
@@ -89,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
         WindowSystem.AddWindow(inviteWindow);
         quickLayerWindow = new QuickLayerWindow(Configuration, pairing, layers);
         WindowSystem.AddWindow(quickLayerWindow);
-        washOff = new WashOffService(Configuration, layers);
+        washOff = new WashOffService(Configuration, layers, creampies);
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
@@ -116,6 +125,9 @@ public sealed class Plugin : IDalamudPlugin
         moodles.Dispose();
         WindowSystem.RemoveAllWindows();
 
+        dripRings.Dispose();
+        dripVfx.Dispose();
+        glamourer.Dispose();
         compositor.Dispose();
         pluginOverlays.Dispose();
         proteus.Dispose();
@@ -123,6 +135,7 @@ public sealed class Plugin : IDalamudPlugin
         pairing.Dispose();
         listener.Dispose();
         sender.Dispose();
+        creampies.Dispose();
         layers.Dispose();
     }
 
@@ -169,7 +182,9 @@ public sealed class Plugin : IDalamudPlugin
 
         if (all)
         {
-            Notifier.Info(layers.CleanAll(LayerChange.Of(ChangeCause.Clean)) ? "All cleaned up." : "You're already clean.");
+            var cleaned = layers.CleanAll(LayerChange.Of(ChangeCause.Clean));
+            cleaned |= creampies.EndAll(CreampieCause.Clean) > 0;
+            Notifier.Info(cleaned ? "All cleaned up." : "You're already clean.");
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();

@@ -41,6 +41,14 @@ public static class BodyParts
     public const int Count = 18;
     public const int AllMask = (1 << Count) - 1;
 
+    /// Block bits after the parts: "Creampie: pussy" and "Creampie: ass" (State/Hole.cs). Carried only by `bly`.
+    public const int CreampiePussyBit = 1 << Count;
+    public const int CreampieAssBit = 1 << (Count + 1);
+    public const int CreampieMask = CreampiePussyBit | CreampieAssBit;
+
+    /// Every block bit `bly` carries: the parts and the creampie blocks.
+    public const int WireMask = AllMask | CreampieMask;
+
     /// The bits `inv`/`acc`/`blk` carry: the parts of the first versions, which reject any other bit.
     public const int LegacyBodyMask = (1 << 10) - 1;
 
@@ -80,9 +88,6 @@ public static class BodyParts
 
     /// Composited onto the face material rather than the body.
     public static bool IsFacial(this BodyPart part) => part == BodyPart.Face;
-
-    /// Parts older partners ignore: Face (on versions before facial parts) and the body parts added after it.
-    public static bool NeedsRecentPartner(this BodyPart part) => (part.Bit() & LegacyBodyMask) == 0;
 
     /// How many stages the part builds up through.
     public static int StageCount(this BodyPart part) => MaxStages;

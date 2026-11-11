@@ -3,7 +3,8 @@ using Cummy.State;
 
 namespace Cummy.Ipc;
 
-/// Actions (version 5): lick and invite another player, and clean, rinse or set a stage on the wearer, each under the
+/// Actions (version 5): lick and invite another player, and clean (version 6: also `pussy`/`ass`), rinse or set a stage
+/// on the wearer, each under the
 /// same rules as the UI. Cleaning or lowering a stage is locked while drying off or washing off is on, in every build.
 public sealed partial class CummyApi
 {
@@ -49,12 +50,19 @@ public sealed partial class CummyApi
     public string CleanSelf(string partId)
     {
         var all = partId == ApiStrings.AllParts;
+        var isHole = Holes.TryParseApiName(partId, out var hole);
         var part = default(BodyPart);
-        if (!all && (!BodyParts.TryParseId(partId ?? "", out part) || part == BodyPart.FullBody))
+        if (!all && !isHole && (!BodyParts.TryParseId(partId ?? "", out part) || part == BodyPart.FullBody))
             return ApiStrings.UnknownPart;
         if (layers.Current is null) return ApiStrings.NoCharacter;
         if (!config.ManualCleanAllowed) return ApiStrings.Locked;
-        var cleaned = all ? layers.CleanAll(ByPlugin()) : layers.Clean(part, ByPlugin());
+        bool cleaned;
+        if (isHole)
+            cleaned = creampies.End(hole, CreampieCause.Plugin);
+        else if (all)
+            cleaned = layers.CleanAll(ByPlugin()) | creampies.EndAll(CreampieCause.Plugin) > 0;   // and both creampies
+        else
+            cleaned = layers.Clean(part, ByPlugin());
         return cleaned ? ApiStrings.Cleaned : ApiStrings.AlreadyClean;
     }
 

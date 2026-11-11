@@ -9,10 +9,10 @@ using Dalamud.Plugin.Ipc;
 
 namespace Cummy.Ipc;
 
-/// Cummy's IPC for other plugins (API version 5). The README's "Plugin API" section is the reference, and
+/// Cummy's IPC for other plugins (API version 6). The README's "Plugin API" section is the reference, and
 /// Cummy.Api/CummyIpc.cs is a typed client other plugins can copy. This file keeps the version 1-4 endpoints, the
 /// lifecycle events and the plumbing; the partial files add the reads (State), events (Events), actions (Actions),
-/// plugin messaging (Messaging) and plugin overlays (Overlays).
+/// plugin messaging (Messaging), plugin overlays (Overlays) and creampies (Creampie).
 ///
 /// Every endpoint except Cummy.ApiVersion answers only on the framework thread (<see cref="ApiStrings.WrongThread"/> or
 /// an empty value otherwise), and no exception ever crosses into the caller (<see cref="ApiStrings.Error"/>).
@@ -20,13 +20,14 @@ namespace Cummy.Ipc;
 /// settings, the plugin toggles) are never writable from here.
 public sealed partial class CummyApi : IDisposable
 {
-    public const int Version = 5;
+    public const int Version = 6;
 
     private readonly Configuration config;
     private readonly PairingService pairing;
     private readonly LayerState layers;
     private readonly PluginRelay relay;
     private readonly PluginOverlays overlays;
+    private readonly CreampieService creampies;
 
     /// Undoes each function registration, so Dispose can't miss one.
     private readonly List<Action> unregister = new();
@@ -36,8 +37,9 @@ public sealed partial class CummyApi : IDisposable
     private readonly ICallGateProvider<int, object> onLayersChanged;
 
     public CummyApi(Configuration config, PairingService pairing, LayerState layers, PluginRelay relay,
-                    PluginOverlays overlays)
+                    PluginOverlays overlays, CreampieService creampies)
     {
+        this.creampies = creampies;
         this.overlays = overlays;
         this.config = config;
         this.pairing = pairing;
@@ -62,6 +64,7 @@ public sealed partial class CummyApi : IDisposable
         RegisterActions();
         RegisterMessaging();
         RegisterOverlays();
+        RegisterCreampie();
 
 #if DEBUG
         Outcome<string>("Cummy.DebugLayerSelf", DebugLayerSelf);
@@ -278,6 +281,8 @@ public sealed partial class CummyApi : IDisposable
         c.Message += (channel, payload, name, world) => DebugEvent($"Message [{channel}] {payload} from {name}@{world}");
         c.OverlayFailed += (owner, key, reason) => DebugEvent($"OverlayFailed {owner}/{key}: {reason}");
         c.OverlayRemoved += (owner, key) => DebugEvent($"OverlayRemoved {owner}/{key}");
+        c.CreampieChanged += (hole, active, left, cause, name, world)
+            => DebugEvent($"CreampieChanged {hole} {(active ? $"on {left}s" : "off")} {cause}{(name.Length > 0 ? $" by {name}@{world}" : "")}");
     }
 
     /// For another plugin to test against: layers this character as if a paired partner had sent the tell, through the

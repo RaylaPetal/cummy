@@ -57,6 +57,9 @@ public sealed class LayerPickerWindow : ThemedWindow
         else
         {
             PartGrid.Draw(current, inRange, part => pairing.SendLayer(current, part), "picker");
+            ImGuiHelpers.ScaledDummy(4f);
+            Ui.Muted("Creampie");
+            PartGrid.DrawHoles(current, inRange, hole => pairing.SendCreampie(current, hole), "pickercreampie");
             Ui.FooterHint("Click a part to layer it - this stays open for more");
         }
     }

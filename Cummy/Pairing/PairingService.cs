@@ -34,6 +34,7 @@ public sealed class PairingService : IDisposable
     private readonly LayerState layers;
     private readonly ChatSender sender;
     private readonly ChatListener listener;
+    private readonly CreampieService creampies;
 
     /// Invites we sent, by peer key, awaiting their accept.
     private readonly Dictionary<string, (string Nonce, DateTime ExpiresUtc)> outgoing = new(StringComparer.OrdinalIgnoreCase);
@@ -63,8 +64,10 @@ public sealed class PairingService : IDisposable
     /// Raised with <see cref="LayerAccepted"/>, with who the layer came from: (part, source name, source world).
     public event Action<BodyPart, string, string>? LayerReceived;
 
-    public PairingService(Configuration config, LayerState layers, ChatSender sender, ChatListener listener)
+    public PairingService(Configuration config, LayerState layers, ChatSender sender, ChatListener listener,
+                          CreampieService creampies)
     {
+        this.creampies = creampies;
         this.config = config;
         this.layers = layers;
         this.sender = sender;
@@ -229,6 +232,19 @@ public sealed class PairingService : IDisposable
         return true;
     }
 
+    /// Creampie a partner's (or, in Public mode, a stranger's) <paramref name="hole"/>. Their Cummy applies its own
+    /// rules when it arrives.
+    public bool SendCreampie(PeerRecord peer, Hole hole)
+    {
+        if (!sender.SendTell(peer.Name, peer.World, Protocol.Creampie(hole)))
+        {
+            Notifier.Error("Slow down - too many messages waiting to send.");
+            return false;
+        }
+        Notifier.Info($"Creampied {peer.Name}'s {hole.DisplayName().ToLowerInvariant()}.");
+        return true;
+    }
+
     /// Lick <paramref name="part"/> off a partner. What lands on you is decided when their `lkd` arrives
     /// (<see cref="OnLickConfirmed"/>); without one within <see cref="LickTimeout"/> there was nothing to lick.
     public bool SendLick(PeerRecord peer, BodyPart part)
@@ -264,6 +280,15 @@ public sealed class PairingService : IDisposable
             if ((changed.Bit() & BodyParts.ExtendedMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.BlockExtended(me.BlockMask));
             sender.SendTell(peer.Name, peer.World, Protocol.BlockAll(me.BlockMask));
         }
+    }
+
+    /// The wearer changed a block only `bly` carries (a creampie block): tell every peer with it alone.
+    public void BroadcastAllBlocks()
+    {
+        if (Me is not { } me) return;
+        BlocksChanged?.Invoke();
+        foreach (var peer in me.Peers)
+            sender.SendTell(peer.Name, peer.World, Protocol.BlockAll(me.BlockMask));
     }
 
     /// After pairing: the blocks `inv`/`acc` could not carry, for versions that understand them (others ignore them).
@@ -358,6 +383,20 @@ public sealed class PairingService : IDisposable
                     Plugin.Log.Warning($"Couldn't confirm {name}@{world}'s lick of {message.Part}: send queue full.");
                 break;
 
+            case Verb.Creampie:
+                if (!MayAct(me, name, world))
+                {
+                    Plugin.Log.Information($"Ignored a creampie from {Refused(me, name, world)} {name}@{world}.");
+                    return;
+                }
+                if (!Proximity.Within(name, world, Proximity.LayerRange + Proximity.ReceiveSlack))
+                {
+                    Plugin.Log.Information($"Ignored a creampie from {name}@{world}: not within {Proximity.LayerRange} yalms.");
+                    return;
+                }
+                ApplyCreampie(me, name, world, message.Hole);
+                break;
+
             case Verb.Licked:
                 if (!MayAct(me, name, world))
                 {
@@ -427,6 +466,24 @@ public sealed class PairingService : IDisposable
         ApplyLayer(me, name, world, part);
     }
 
+    /// Debug builds only: behave as if `name@world`'s creampie tell had arrived from close by, through the real wire
+    /// format, access and block checks (only the chat transport and the range check are skipped).
+    public void SimulateCreampieFrom(string name, string world, Hole hole)
+    {
+        if (Me is not { } me) return;
+        if (Protocol.Parse(Protocol.Creampie(hole)) is not { Verb: Verb.Creampie } message)
+        {
+            Notifier.Error($"[debug] {hole} did not survive the wire format.");
+            return;
+        }
+        if (!MayAct(me, name, world))
+        {
+            Notifier.Info($"[debug] Ignored: {name}@{world} is {Refused(me, name, world)}.");
+            return;
+        }
+        Notifier.Info($"[debug] Creampie: {ApplyCreampie(me, name, world, message.Hole)}.");
+    }
+
     /// Debug builds only: behave as if `name@world` had sent a pairing invite (a fresh nonce), through the real checks.
     public void SimulateInviteFrom(string name, string world)
     {
@@ -472,9 +529,55 @@ public sealed class PairingService : IDisposable
     /// caller confirms with `lkd`. Blocks don't apply: they only stop layering.
     private bool BeLicked(string name, string world, BodyPart part)
     {
-        if (!layers.Clean(part, new LayerChange(ChangeCause.Lick, name, world))) return false;
-        Notifier.Info($"{name} licked your {part.DisplayName().ToLowerInvariant()} clean.");
+        var cleaned = layers.Clean(part, new LayerChange(ChangeCause.Lick, name, world));
+        // Licking Groin/Butt also licks out a creampie, whether or not that part had a layer.
+        var licked = Holes.ForPart(part) is { } hole && creampies.End(hole, CreampieCause.Lick, name, world);
+        if (!cleaned && !licked) return false;
+        Notifier.Info(licked
+            ? $"{name} licked your {Holes.ForPart(part)!.Value.DisplayName().ToLowerInvariant()} clean - no more dripping."
+            : $"{name} licked your {part.DisplayName().ToLowerInvariant()} clean.");
         return true;
+    }
+
+    /// A creampie from `name@world` that passed the access and range checks (or another plugin's, through
+    /// <see cref="CreampieSelf"/>): unless the hole is blocked, starts or restarts its drip and layers Groin/Butt one
+    /// step as a layer from them would (skipped when that part is blocked). Returns creampied, refreshed or blocked.
+    private string ApplyCreampie(CharacterData me, string name, string world, Hole hole)
+    {
+        if (hole.IsBlockedBy(me.BlockMask))
+        {
+            Plugin.Log.Information($"Ignored a blocked {hole.ApiName()} creampie from {name}@{world}.");
+            return ApiStrings.Blocked;
+        }
+        if (!creampies.Start(hole, name, world, out var wasRunning)) return ApiStrings.NoCharacter;
+
+        var part = hole.Part();
+        var note = "";
+        if (!part.IsBlockedBy(me.BlockMask))
+        {
+            var outcome = layers.Layer(part, new LayerChange(ChangeCause.Creampie, name, world));
+            if (outcome is LayerOutcome.Layered or LayerOutcome.Advanced)
+            {
+                note = $" ({part.DisplayName().ToLowerInvariant()} at stage {layers.Stage(part)} of {part.StageCount()})";
+                LayerAccepted?.Invoke(part);
+                LayerReceived?.Invoke(part, name, world);
+            }
+        }
+        var minutes = (int)config.CreampieDuration.TotalMinutes;
+        Notifier.Info(wasRunning
+            ? $"{name} creampied your {hole.DisplayName().ToLowerInvariant()} again - dripping for {minutes} more minutes{note}."
+            : $"{name} creampied your {hole.DisplayName().ToLowerInvariant()} - dripping for {minutes} minutes{note}.");
+        return wasRunning ? ApiStrings.Refreshed : ApiStrings.Creampied;
+    }
+
+    /// For another plugin that decided a creampie itself: as if `name@world` had creampied the wearer, with no pairing,
+    /// tell or range, under the wearer's blocks and blacklist. Returns creampied, refreshed, blocked, blacklisted or
+    /// no-character.
+    public string CreampieSelf(Hole hole, string name, string world)
+    {
+        if (Me is not { } me) return ApiStrings.NoCharacter;
+        if (me.IsBlacklisted(name, world)) return ApiStrings.Blacklisted;
+        return ApplyCreampie(me, name, world, hole);
     }
 
     /// A partner's `lkd`: only for a lick we sent them of that part, still waiting. Then it lands on our face: a

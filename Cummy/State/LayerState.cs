@@ -10,7 +10,7 @@ namespace Cummy.State;
 public enum LayerOutcome { None, Layered, Advanced, Full }
 
 /// Why a part's stage changed, as the plugin API reports it (Ipc/ApiStrings.cs has the wire names).
-public enum ChangeCause { Layer, FullBody, Drip, Rinse, Lick, Kiss, Dry, Clean, Plugin }
+public enum ChangeCause { Layer, FullBody, Drip, Rinse, Lick, Kiss, Dry, Clean, Plugin, Creampie }
 
 /// What caused a change, and the player responsible when there is one (empty otherwise).
 public readonly record struct LayerChange(ChangeCause Cause, string SourceName = "", string SourceWorld = "")

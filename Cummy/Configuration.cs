@@ -28,6 +28,14 @@ public class Configuration : IPluginConfiguration
     /// <see cref="DripMinutes"/> within its range.
     public TimeSpan DripInterval => TimeSpan.FromMinutes(Math.Clamp(DripMinutes, MinDripMinutes, MaxDripMinutes));
 
+    /// How long a creampie drips (each hole its own timer), in minutes.
+    public const int MinCreampieMinutes = 1;
+    public const int MaxCreampieMinutes = 120;
+    public int CreampieMinutes { get; set; } = 10;
+
+    public TimeSpan CreampieDuration
+        => TimeSpan.FromMinutes(Math.Clamp(CreampieMinutes, MinCreampieMinutes, MaxCreampieMinutes));
+
     /// Keyed by the local character's content id: pairings, blocks and layers belong to one character.
     public Dictionary<ulong, CharacterData> Characters { get; set; } = new();
 
@@ -233,11 +241,35 @@ public class CharacterData
     /// Players who may never layer, lick or invite this character, in either mode, until removed.
     public List<BlacklistEntry> Blacklist { get; set; } = new();
 
+    /// Running creampies by hole id (`pu`/`as`). Absent = not dripping.
+    public Dictionary<string, CreampieRecord> Creampies { get; set; } = new();
+
+    /// Rings Cummy put on for a drip, by Glamourer slot name, with what was there before. Kept until restored, which
+    /// waits for Glamourer when it is missing.
+    public Dictionary<string, DripRingRecord> DripRings { get; set; } = new();
+
     public PeerRecord? FindPeer(string name, string world)
         => Peers.Find(p => p.Matches(name, world));
 
     public bool IsBlacklisted(string name, string world)
         => Blacklist.Exists(b => b.Matches(name, world));
+}
+
+[Serializable]
+public class CreampieRecord
+{
+    public DateTime ExpiresUtc { get; set; }
+    public string SourceName { get; set; } = string.Empty;
+    public string SourceWorld { get; set; } = string.Empty;
+}
+
+/// What a ring slot held before Cummy put the drip ring on it.
+[Serializable]
+public class DripRingRecord
+{
+    public ulong PreviousItem { get; set; }
+    public byte PreviousStain { get; set; }
+    public byte PreviousStain2 { get; set; }
 }
 
 [Serializable]

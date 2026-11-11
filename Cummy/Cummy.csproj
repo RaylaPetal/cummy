@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>2.7.1.0</Version>
+    <Version>2.7.1.1</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>Cummy</Name>
@@ -9,6 +9,7 @@
     <Description>Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.
 Requires Penumbra. 18+ content.</Description>
     <Tags>nsfw;penumbra;overlay;bibo</Tags>
+    <IconUrl>https://raw.githubusercontent.com/RaylaPetal/cummy/main/Cummy/images/icon.png</IconUrl>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
@@ -18,6 +19,16 @@ Requires Penumbra. 18+ content.</Description>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Visible>false</Visible>
     </Content>
+    <!-- The creampie drip (Dripping Pussy VFX by Tirda Frye): effects and ring model, see README credits. -->
+    <Content Include="Assets\drip\*.avfx;Assets\drip\*.mdl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Visible>false</Visible>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Packed next to the plugin so the installer shows it for dev builds too; images/icon.svg is the source. -->
+    <Content Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
@@ -29,6 +40,8 @@ Requires Penumbra. 18+ content.</Description>
   <ItemGroup>
     <PackageReference Include="BCnEncoder.Net" Version="2.2.1" />
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
+    <!-- Glamourer IPC (optional at runtime): puts the drip ring on and back off. -->
+    <PackageReference Include="Glamourer.Api" Version="2.8.2" />
   </ItemGroup>
 
   <ItemGroup>

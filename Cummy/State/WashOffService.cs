@@ -12,7 +12,7 @@ using TerritoryType = Lumina.Excel.Sheets.TerritoryType;
 namespace Cummy.State;
 
 /// Washing off (opt-in): layers rinse off one stage at a time while the wearer swims, dives or sits in a bath or
-/// shower at a house, and once per rain interval outdoors in the rain. Wading is not detected (the only known check is
+/// shower at a house, and once per rain interval outdoors in the rain. Water (not rain) also ends creampies. Wading is not detected (the only known check is
 /// a raw memory offset). Framework thread.
 public sealed class WashOffService : IDisposable
 {
@@ -45,6 +45,7 @@ public sealed class WashOffService : IDisposable
 
     private readonly Configuration config;
     private readonly LayerState layers;
+    private readonly CreampieService creampies;
 
     /// The bath furnishings' sheet rows, by their low 16 bits (what placed furniture's id carries).
     private readonly HashSet<ushort> indoorBaths;
@@ -55,8 +56,9 @@ public sealed class WashOffService : IDisposable
     private int rainSeconds;
     private int drySeconds;
 
-    public WashOffService(Configuration config, LayerState layers)
+    public WashOffService(Configuration config, LayerState layers, CreampieService creampies)
     {
+        this.creampies = creampies;
         this.config = config;
         this.layers = layers;
         indoorBaths = Plugin.DataManager.GetExcelSheet<HousingFurnitureSheet>()
@@ -81,7 +83,8 @@ public sealed class WashOffService : IDisposable
 
         // Water: one stage every few seconds of each stay. Leaving keeps the stage reached; the next stay counts afresh.
         var swimming = Plugin.Condition[ConditionFlag.Swimming] || Plugin.Condition[ConditionFlag.Diving];
-        var inWater = config.WashInWater && !layers.IsEmpty && (swimming || InBath(player.Position));
+        var dripping = creampies.Active.Count > 0;
+        var inWater = config.WashInWater && (!layers.IsEmpty || dripping) && (swimming || InBath(player.Position));
         if (!inWater)
         {
             waterSeconds = 0;
@@ -89,6 +92,9 @@ public sealed class WashOffService : IDisposable
         else if (++waterSeconds >= WaterRinseSeconds)
         {
             waterSeconds = 0;
+            // Water also washes out a creampie (rain doesn't).
+            if (creampies.EndAll(CreampieCause.Wash) > 0)
+                Notifier.Info(swimming ? "The water washed the creampie out." : "The bath washed the creampie out.");
             if (layers.Rinse() && layers.IsEmpty)
             {
                 ResetRain();

@@ -9,6 +9,7 @@
     "DalamudApiLevel": 15,
     "Punchline": "Cum layering system for your paired partners.",
     "RepoUrl": "https://github.com/RaylaPetal/cummy",
+    "IconUrl": "https://raw.githubusercontent.com/RaylaPetal/cummy/main/Cummy/images/icon.png",
     "Tags": [
       "nsfw",
       "penumbra",
@@ -19,7 +20,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.1.0/Cummy-2.7.1.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.1.0/Cummy-2.7.1.0.zip",
-    "Changelog": "- Cummy now uses a single mod in Penumbra instead of two. The old \"Cummy Layers\" mod is removed automatically, and its Proteus options now live inside the Cummy mod. Your layers carry over, nothing to do.\n- The Cummy mod is now named after your character, as Cummy [Name Surname @ World], and follows whoever is logged in.",
+    "Changelog": "- New: Creampie. Under the body parts in the droplet and the layer picker, creampie a partner's pussy or ass: it drips for a while (10 minutes by default, change it in Settings, General) and layers their groin or butt. Washing in water, a partner licking there, or cleaning ends it. Block either in the Blocked tab.\n- The drip uses the Dripping Pussy VFX effect by Tirda Frye, shipped with Cummy, on the Emperor's New Ring, which Cummy puts on through Glamourer and keeps on until the creampie ends, then gives your ring back. It needs an IVCS skeleton. If a ring slot is locked by another plugin, the other ring slot is used. Turn off the Dripping Pussy VFX mod if you have it.\n- Plugin API version 6: creampies for other plugins.\n- Fixed Penumbra errors (ReloadMod failed) when Cummy loads.\n- Cummy has an icon.",
     "LastUpdate": "1794411703"
   }
 ]

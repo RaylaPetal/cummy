@@ -24,10 +24,13 @@ public sealed class MainWindow : ThemedWindow
     private readonly DripService drip;
     private readonly LayerPickerWindow picker;
 
+    private readonly CreampieService creampies;
+
     public MainWindow(Configuration configuration, LayerState layers, PairingService pairing, CompositorService compositor,
-                      DripService drip, LayerPickerWindow picker, Action openSettings)
+                      DripService drip, LayerPickerWindow picker, Action openSettings, CreampieService creampies)
         : base("Cummy###CummyMain")
     {
+        this.creampies = creampies;
         this.drip = drip;
         this.configuration = configuration;
         this.layers = layers;
@@ -60,6 +63,7 @@ public sealed class MainWindow : ThemedWindow
         DrawBanner();
         ImGuiHelpers.ScaledDummy(4f);
         DrawLayers();
+        DrawCreampies();
         ImGuiHelpers.ScaledDummy(6f);
         DrawPartners();
     }
@@ -69,7 +73,7 @@ public sealed class MainWindow : ThemedWindow
     private void DrawBanner()
     {
         var count = BodyParts.DisplayOrder.Count(layers.IsLayered);
-        if (count == 0)
+        if (count == 0 && creampies.Active.Count == 0)
         {
             Ui.Card("banner", CardStyle.MutedBanner, () =>
             {
@@ -100,7 +104,8 @@ public sealed class MainWindow : ThemedWindow
             Ui.AlignRight(Ui.IconButtonWithTextWidth(FontAwesomeIcon.Broom, label));
             using (Ui.AccentButton())
             {
-                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, label) && layers.CleanAll(LayerChange.Of(ChangeCause.Clean)))
+                if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, label)
+                    && (layers.CleanAll(LayerChange.Of(ChangeCause.Clean)) | creampies.EndAll(CreampieCause.Clean) > 0))
                     Notifier.Info("All cleaned up.");
             }
         });
@@ -135,6 +140,36 @@ public sealed class MainWindow : ThemedWindow
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip("Proteus is loaded, so it layers your body together with its own overlays. "
                                + "Facial layers still come from Cummy. Change this in Settings > General.");
+        }
+    }
+
+    /// Running creampie drips with the time left, each with Stop while cleaning by hand is allowed.
+    private void DrawCreampies()
+    {
+        var active = creampies.Active;
+        if (active.Count == 0) return;
+
+        ImGuiHelpers.ScaledDummy(4f);
+        Ui.Heading("Dripping");
+        foreach (var hole in active)
+        {
+            Ui.Card($"creampie{hole.Id()}", CardStyle.Normal, () =>
+            {
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextUnformatted(hole.DisplayName());
+                var left = creampies.Remaining(hole) ?? TimeSpan.Zero;
+                var pill = $"{(int)left.TotalMinutes}:{left.Seconds:D2} left";
+                var canClean = configuration.ManualCleanAllowed;
+                var spacing = ImGui.GetStyle().ItemSpacing.X;
+                Ui.AlignRight(Ui.PillWidth(pill) + (canClean ? spacing + Ui.IconButtonWidth(FontAwesomeIcon.Broom) : 0));
+                Ui.Pill(pill, PillTone.Accent);
+                if (!canClean) return;
+                ImGui.SameLine();
+                if (ImGuiComponents.IconButton($"stop{hole.Id()}", FontAwesomeIcon.Broom)
+                    && creampies.End(hole, CreampieCause.Clean))
+                    Notifier.Info($"Cleaned out your {hole.DisplayName().ToLowerInvariant()}.");
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Clean it out (stops the drip)");
+            });
         }
     }
 

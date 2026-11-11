@@ -3,7 +3,7 @@
 A Dalamud plugin for FINAL FANTASY XIV that brings Second Life INM-style cum layering to paired partners, or anyone nearby in Public mode. **18+.**
 
 - **Pair** with someone nearby: click the droplet button, choose them and click *Pair*. They accept the invite and you're paired; either of you can *Unpair* at any time from `/cummy`.
-- **Layer** or **lick** a partner nearby from the same droplet button: choose them and click a body part.
+- **Layer** or **lick** a partner nearby from the same droplet button: choose them and click a body part. Under the parts, **Creampie** their pussy or ass: it drips for a while (the Emperor's New Ring is put on through Glamourer to carry the drip effect, which needs an IVCS skeleton) and layers their groin or butt. Washing in water or a lick there ends it; block either in settings.
 - **Pairing or Public** (in `/cummy settings`): in Pairing mode, the default, only partners can layer you. In Public mode anyone with Cummy nearby can layer or lick you without pairing, and you can layer anyone nearby. Your blocks and range still apply either way.
 - **Blacklist** someone (hold Ctrl in the droplet dropdown, or type `Name@World` in settings) and they can never layer, lick or invite you until you remove them. Blacklisting a partner unpairs them.
 - Layers are applied **on the wearer's own client**, on top of the skin they are actually wearing, and published through one Cummy mod in Penumbra, listed as `Cummy [Name Surname @ World]` after the logged-in character, so sync plugins show them to everyone. With the Proteus plugin, the same mod carries a "Cummy layers" option group that Proteus composites your body layers from. Older versions' separate "Cummy Layers" mod is removed automatically.
@@ -41,7 +41,7 @@ Requires the .NET 10 SDK and Dalamud installed at least once. Shipped overlays a
 
 ## Plugin API
 
-Other plugins can build on Cummy through Dalamud IPC: read the wearer's layers and settings, react to every change, layer, lick and clean under the wearer's own rules, message the same plugin on a partner's client, and paint their own overlays through Cummy's compositor. The API is at version 5.
+Other plugins can build on Cummy through Dalamud IPC: read the wearer's layers and settings, react to every change, layer, lick and clean under the wearer's own rules, message the same plugin on a partner's client, and paint their own overlays through Cummy's compositor. The API is at version 6.
 
 **Client.** `Cummy.Api/CummyIpc.cs` is a single file to copy into your plugin. It has typed wrappers for every call gate below, events, and the outcome and cause strings as constants (`CummyStrings`). Cummy's own debug build drives its settings debug panel through that file, so it always matches the gates.
 
@@ -57,7 +57,7 @@ Part IDs are the wire IDs in `Cummy/BodyPart.cs` (`GetParts` lists them): `mo` F
 
 | IPC | Signature | Purpose |
 | --- | --- | --- |
-| `Cummy.ApiVersion` | `() -> int` | The API version, currently 5. Any thread |
+| `Cummy.ApiVersion` | `() -> int` | The API version, currently 6. Any thread |
 | `Cummy.Ready` | event `()` | Cummy's endpoints are registered (on every load) |
 | `Cummy.Disposing` | event `()` | Cummy is about to unregister its endpoints |
 | `Cummy.GetParts` | `() -> List<(string id, string name, int stages, bool facial, bool isTarget)>` | v5. Every layer target in display order, Full Body last (`isTarget`, 0 stages) |
@@ -93,9 +93,20 @@ Part IDs are the wire IDs in `Cummy/BodyPart.cs` (`GetParts` lists them): `mo` F
 | `Cummy.LayerSelf` | `(string partId, string sourceName, string sourceWorld) -> string` | v3. Layers the wearer as if that player had, with no pairing and no tell, under the wearer's own blocks and stages. For plugins that decide the layer themselves, such as Corruption on a scene partner's climax. Returns `layered`, `advanced`, `full`, `blocked`, `blacklisted`, `unknown-part` or `no-character` |
 | `Cummy.SendLick` | `(string name, string world, string partId) -> string` | v5. Licks a part off a partner (or a stranger in Public mode) within lick range. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `queue-full` or `unknown-part` (Full Body included). The result arrives as `OnLickResult` |
 | `Cummy.Invite` | `(string name, string world) -> string` | v5. Sends a pairing invite. Returns `sent`, `already-paired`, `pending`, `blacklisted`, `queue-full` or `no-character`. Accepting, unpairing and blacklisting stay with the wearer |
-| `Cummy.CleanSelf` | `(string partId) -> string` | v5. Cleans one part, or every part for `all`. Returns `cleaned`, `already-clean`, `locked` (drying off or washing off is on), `unknown-part` or `no-character` |
+| `Cummy.CleanSelf` | `(string partId) -> string` | v5. Cleans one part, or every part for `all` (v6: `all` also ends both creampies; `pussy`/`ass` end one). Returns `cleaned`, `already-clean`, `locked` (drying off or washing off is on), `unknown-part` or `no-character` |
 | `Cummy.RinseSelf` | `() -> string` | v5. Every layered part one stage down, as washing off does. Allowed when cleaning by hand is, or while washing in water is on (your plugin is the water). Returns `rinsed`, `already-clean`, `locked` or `no-character` |
 | `Cummy.SetStage` | `(string partId, int stage, string sourceName, string sourceWorld) -> string` | v5. Sets a part to a stage from 0 to its stage count. Raising follows layering rules (`blocked`, `blacklisted` for a blacklisted source); lowering follows cleaning rules (`locked`). Returns `set`, `unchanged`, `blocked`, `blacklisted`, `locked`, `invalid-stage`, `unknown-part` or `no-character` |
+
+### Creampies
+
+A creampie makes the wearer's pussy or ass drip for a while (the wearer's setting, 10 minutes by default; another one restarts it) and layers Groin or Butt one step. Washing in water, a partner licking that part, or cleaning ends it. Holes are `pussy` and `ass`.
+
+| IPC | Signature | Purpose |
+| --- | --- | --- |
+| `Cummy.SendCreampie` | `(string name, string world, string hole) -> string` | v6. Creampies a partner (or, in Public mode, anyone in range) with the normal tell; their Cummy applies its own rules. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `blocked`, `queue-full` or `unknown-hole` |
+| `Cummy.CreampieSelf` | `(string hole, string sourceName, string sourceWorld) -> string` | v6. Creampies the wearer as if that player had, with no pairing, tell or range, under the wearer's blocks and blacklist. Returns `creampied`, `refreshed`, `blocked`, `blacklisted`, `unknown-hole` or `no-character` |
+| `Cummy.GetCreampies` | `() -> Dictionary<string, int>` | v6. Seconds left per dripping hole |
+| `Cummy.OnCreampieChanged` | event `(string hole, bool active, int secondsLeft, string cause, string sourceName, string sourceWorld)` | v6. A drip started or restarted (`creampie`) or ended (`timer`, `wash`, `lick`, `clean`, `plugin`). The accompanying Groin/Butt step shows in `OnPartChanged` with cause `creampie` |
 
 ### Messaging
 
@@ -125,6 +136,10 @@ Overlays are kept in memory only. They go away when the plugin that owns them un
 
 Debug builds also register `Cummy.DebugLayerSelf` `(string partId) -> string`, which layers you as if `Debug Partner@Debug` had sent the tell, for testing against.
 
+### Changes in version 6
+
+- Creampies: `SendCreampie`, `CreampieSelf`, `GetCreampies`, `OnCreampieChanged`; `CleanSelf` takes `pussy`/`ass`, and `all` ends creampies too; `OnPartChanged` has the cause `creampie`.
+
 ### Changes in version 5
 
 - `LayerSelf` accepts `fb` (Full Body). It used to return `unknown-part` for it.
@@ -137,5 +152,6 @@ Cummy is licensed under the **GNU AGPL v3** (see `LICENSE.md`).
 - The overlay compositor is ported from [Proteus](https://github.com/solona-m/proteus) by Solona (AGPL-3.0): upstream skin resolution, `.mtrl`/`.tex` handling and overlay blending. Ported files live in `Cummy/ThirdParty/Proteus/` and keep their attribution.
 - The tell-based pairing and messaging pattern follows Oathbound.
 - The default facial overlays are converted from [HLF] Cum Blush by HighLowFlow.
+- The creampie dripping VFX and ring model are from Dripping Pussy VFX by Tirda Frye.
 - Scaffolded from [goatcorp/SamplePlugin](https://github.com/goatcorp/SamplePlugin).
 - Penumbra IPC via [Penumbra.Api](https://github.com/Ottermandias/Penumbra.Api).

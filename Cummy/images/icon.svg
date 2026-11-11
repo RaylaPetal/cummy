@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="32%" r="78%">
+      <stop offset="0" stop-color="#3b2466"/>
+      <stop offset="1" stop-color="#130c22"/>
+    </radialGradient>
+    <linearGradient id="pearl" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#ece4fb"/>
+      <stop offset="1" stop-color="#b9a6e2"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c7a6ff"/>
+      <stop offset="1" stop-color="#7f5fd0"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9cc0"/>
+      <stop offset="1" stop-color="#d9558a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#c7a6ff" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#c7a6ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <ellipse cx="236" cy="430" rx="170" ry="46" fill="url(#glow)"/>
+
+  <!-- puddle under the drop -->
+  <ellipse cx="236" cy="430" rx="104" ry="20" fill="#cbb8f0" opacity="0.55"/>
+  <ellipse cx="236" cy="426" rx="70" ry="11" fill="#f3edfd" opacity="0.7"/>
+
+  <!-- main droplet -->
+  <path d="M236 62 C 236 62, 352 206, 352 286 C 352 352, 300 404, 236 404 C 172 404, 120 352, 120 286 C 120 206, 236 62, 236 62 Z"
+        fill="url(#pearl)" stroke="url(#rim)" stroke-width="10" stroke-linejoin="round"/>
+  <!-- gloss -->
+  <path d="M168 270 C 168 226, 196 184, 214 160" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" opacity="0.95"/>
+  <circle cx="176" cy="312" r="10" fill="#ffffff"/>
+  <!-- soft inner shade -->
+  <path d="M330 300 C 326 350, 292 384, 248 390" fill="none" stroke="#9f86d6" stroke-width="10" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- small drips falling beside it -->
+  <path d="M384 250 C 384 250, 412 286, 412 306 C 412 322, 399 334, 384 334 C 369 334, 356 322, 356 306 C 356 286, 384 250, 384 250 Z"
+        fill="url(#pearl)" stroke="url(#rim)" stroke-width="7"/>
+  <path d="M410 360 C 410 360, 426 380, 426 391 C 426 400, 419 407, 410 407 C 401 407, 394 400, 394 391 C 394 380, 410 360, 410 360 Z"
+        fill="url(#pearl)" stroke="url(#rim)" stroke-width="5"/>
+
+  <!-- heart sparkle -->
+  <path d="M396 92 C 384 78, 360 84, 362 104 C 364 120, 382 132, 396 146 C 410 132, 428 120, 430 104 C 432 84, 408 78, 396 92 Z"
+        fill="url(#accent)"/>
+  <circle cx="352" cy="58" r="7" fill="#ff9cc0"/>
+  <path d="M446 168 Q449 182 462 185 Q449 188 446 202 Q443 188 430 185 Q443 182 446 168 Z" fill="#ffb3cf"/>
+</svg>

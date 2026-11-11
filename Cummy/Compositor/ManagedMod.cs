@@ -28,8 +28,23 @@ public sealed class ManagedMod
     private bool legacyChecked;
 
     private IReadOnlyDictionary<string, string> files = new Dictionary<string, string>();
-    private IReadOnlyList<string> options = [];
+    // The "Cummy layers" group always lists at least the body parts, Proteus or not: Penumbra (1.7) fails to reload a
+    // mod whose group count shrank while a collection still holds settings for the old groups, so the group's shape
+    // never changes, only its plugin options at the end.
+    private IReadOnlyList<string> options = BaseOptions;
     private string name = "Cummy";
+
+    /// The body-part options the group always has (Proteus mode selects among them).
+    public static readonly IReadOnlyList<string> BaseOptions =
+        BodyParts.Regional.Select(p => p.DisplayName()).ToList();
+
+    // The creampie drip (DripVfx): extra redirects and manipulations, present only while a drip runs.
+    private IReadOnlyDictionary<string, string> dripFiles = new Dictionary<string, string>();
+    private IReadOnlyList<object> dripManipulations = [];
+    private string dripKey = "";
+
+    /// Credit shown in the mod's description while the drip files are in it.
+    public const string DripCredit = "Creampie dripping VFX and ring model: Dripping Pussy VFX by Tirda Frye.";
 
     /// Penumbra re-read the manifest. Option selections should survive a reload with unchanged groups, but the pack
     /// selects again to be sure.
@@ -58,6 +73,10 @@ public sealed class ManagedMod
             RemoveLegacyPack(Path.GetDirectoryName(Dir)!);
         }
         if (registered && ManagedModManifest.Exists(Dir)) return true;
+
+        // Keep the name the mod already shows (the last character's) until SetOwner knows who is logged in, so loading
+        // the plugin doesn't rename it back and forth.
+        if (name == "Cummy" && ManagedModManifest.ReadName(Dir) is { Length: > 0 } shown) name = shown;
 
         files = new Dictionary<string, string>();
         if (!Write()) return false;
@@ -92,8 +111,28 @@ public sealed class ManagedMod
     public bool SetOptions(IReadOnlyList<string> names)
     {
         if (Dir == null) return false;
+        if (names.Count < BaseOptions.Count) names = BaseOptions;   // never shrink below the parts (see options)
         if (options.SequenceEqual(names)) return true;
         options = names.ToList();
+        if (!Write()) return false;
+        Reload();
+        return true;
+    }
+
+    /// Replaces the creampie drip's redirects (game path → path relative to <see cref="Dir"/>) and manipulations
+    /// (Penumbra manifest objects); empty when nothing drips. Written and reloaded only when they changed. False when
+    /// they could not be written.
+    public bool SetDrip(IReadOnlyDictionary<string, string> files, IReadOnlyList<object> manipulations, out bool changed)
+    {
+        changed = false;
+        if (Dir == null) return false;
+        var key = string.Join("|", files.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Select(kv => $"{kv.Key}={kv.Value}"))
+                  + "#" + System.Text.Json.JsonSerializer.Serialize(manipulations);
+        if (key == dripKey) return true;
+        changed = true;
+        dripKey = key;
+        dripFiles = new Dictionary<string, string>(files, StringComparer.OrdinalIgnoreCase);
+        dripManipulations = manipulations.ToList();
         if (!Write()) return false;
         Reload();
         return true;
@@ -123,7 +162,11 @@ public sealed class ManagedMod
     {
         try
         {
-            ManagedModManifest.Write(Dir!, name, files, GroupName, options);
+            // The drip's files never overlap the composited textures; the compositor's win if they ever did.
+            var all = new Dictionary<string, string>(dripFiles, StringComparer.OrdinalIgnoreCase);
+            foreach (var (path, file) in files) all[path] = file;
+            ManagedModManifest.Write(Dir!, name, all, GroupName, options, dripManipulations,
+                                     dripFiles.Count > 0 ? DripCredit : null);
             return true;
         }
         catch (Exception ex)

@@ -39,12 +39,16 @@ public sealed class SettingsWindow : ThemedWindow
 
     private readonly PluginRelay relay;
     private readonly PluginOverlays pluginOverlays;
+    private readonly CreampieService creampies;
+    private readonly DripRings dripRings;
 
     public SettingsWindow(Configuration configuration, LayerState layers, PairingService pairing, OverlaySources overlaySources,
                           CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip, CummyApi api,
-                          PluginRelay relay, PluginOverlays pluginOverlays)
+                          PluginRelay relay, PluginOverlays pluginOverlays, CreampieService creampies, DripRings dripRings)
         : base("Cummy Settings###CummySettings")
     {
+        this.creampies = creampies;
+        this.dripRings = dripRings;
         this.pluginOverlays = pluginOverlays;
         this.relay = relay;
         this.drip = drip;
@@ -189,6 +193,11 @@ public sealed class SettingsWindow : ThemedWindow
         if (ImGui.Button("SendLick##debugApi")) Show("SendLick", c.SendLick(name, world, part));
         ImGui.SameLine();
         if (ImGui.Button("Invite##debugApi")) Show("Invite", c.Invite(name, world));
+        ImGui.SameLine();
+        if (ImGui.Button("SendCreampie##debugApi")) Show("SendCreampie", c.SendCreampie(name, world, part));
+        ImGui.SameLine();
+        if (ImGui.Button("CreampieSelf##debugApi"))
+            Show("CreampieSelf", at > 0 ? c.CreampieSelf(part, name, world) : c.CreampieSelf(part, "Debug Partner", "Debug"));
 
         if (ImGui.Button("CleanSelf part##debugApi")) Show("CleanSelf", c.CleanSelf(part));
         ImGui.SameLine();
@@ -213,6 +222,7 @@ public sealed class SettingsWindow : ThemedWindow
         Ui.Muted($"GetNearby: {string.Join("; ", c.GetNearby().Select(n => $"{n.Name}@{n.World}{(n.Partner ? " (partner)" : "")}"))}");
         Ui.Muted($"GetCleaning: dry {cleaning.DryOff} {cleaning.DryMinutes}m, water {cleaning.WashWater}, rain {cleaning.WashRain}, "
                  + $"drip {cleaning.Drip}, manual {cleaning.ManualClean}");
+        Ui.Muted($"GetCreampies: {{{string.Join(", ", c.GetCreampies().Select(kv => $"{kv.Key}:{kv.Value}s"))}}}  (holes: pussy, ass in the part box)");
         Ui.Muted($"GetParts: {string.Join(" ", c.GetParts().Select(p => p.IsTarget ? $"{p.Id}*" : $"{p.Id}/{p.Stages}{(p.Facial ? "f" : "")}"))}");
         DrawDebugMessaging(c, name, world);
 
@@ -280,7 +290,17 @@ public sealed class SettingsWindow : ThemedWindow
             if (ImGui.Button("Layer my chest##debugStranger")) pairing.SimulateLayerFrom(name, world, BodyPart.Chest);
             ImGui.SameLine();
             if (ImGui.Button("Invite me##debugStranger")) pairing.SimulateInviteFrom(name, world);
+            if (ImGui.Button("Creampie my pussy##debugStranger")) pairing.SimulateCreampieFrom(name, world, Hole.Pussy);
+            ImGui.SameLine();
+            if (ImGui.Button("Creampie my ass##debugStranger")) pairing.SimulateCreampieFrom(name, world, Hole.Ass);
         }
+        ImGui.SameLine();
+        if (ImGui.Button("End drips##debugStranger"))
+            Notifier.Info($"[debug] Ended {creampies.EndAll(CreampieCause.Clean)} drip(s).");
+        Ui.Muted("Dripping: " + (creampies.Active.Count == 0 ? "nothing"
+            : string.Join(", ", creampies.Active.Select(h => $"{h.ApiName()} {creampies.Remaining(h):mm\\:ss}")))
+                 + $"   Ring via Glamourer: {(dripRings.CanWearRing ? "yes" : "no")}   Slots: "
+                 + (dripRings.Assignment.Count == 0 ? "none" : string.Join(", ", dripRings.Assignment.Select(kv => $"{kv.Key.ApiName()}->{kv.Value}"))));
         Ui.Muted(pairing.IsBlacklisted(name, world) ? "They're blacklisted."
                  : pairing.FindPeer(name, world) != null ? "They're a partner."
                  : $"They're unpaired; you're in {(pairing.PublicLayering ? "Public" : "Pairing")} mode.");
@@ -379,6 +399,9 @@ public sealed class SettingsWindow : ThemedWindow
         }
         ImGuiHelpers.ScaledDummy(8f);
 
+        DrawCreampie();
+        ImGuiHelpers.ScaledDummy(8f);
+
         Ui.Heading("Washing off");
         Ui.MutedWrapped("While either is on, you can't clean yourself by hand.");
         var water = configuration.WashInWater;
@@ -428,6 +451,28 @@ public sealed class SettingsWindow : ThemedWindow
             configuration.LockQuickLayerButton = locked;
             configuration.Save();
         }
+    }
+
+    /// How long a creampie drips, and what the drip needs (Glamourer for the ring, an IVCS skeleton for the attach points).
+    private void DrawCreampie()
+    {
+        Ui.Heading("Creampie");
+        var minutes = Math.Clamp(configuration.CreampieMinutes, Configuration.MinCreampieMinutes, Configuration.MaxCreampieMinutes);
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt("##creampieMinutes", ref minutes, Configuration.MinCreampieMinutes, Configuration.MaxCreampieMinutes,
+                            "drips for %d minutes"))
+        {
+            configuration.CreampieMinutes = Math.Clamp(minutes, Configuration.MinCreampieMinutes, Configuration.MaxCreampieMinutes);
+            configuration.Save();
+        }
+        ImGuiComponents.HelpMarker("A partner's creampie makes your pussy or ass drip this long (another one restarts it) and "
+                                 + "layers your groin or butt. Washing in water or a partner licking that part ends it early. "
+                                 + "Block either in the Blocked tab.");
+        if (!dripRings.CanWearRing)
+            Ui.MutedWrapped("Glamourer isn't available: wear the Emperor's New Ring yourself (right hand for pussy, left for ass) "
+                          + "to see the drip.");
+        Ui.MutedWrapped("The drip attaches to IVCS skeleton bones. Turn off the \"Dripping Pussy VFX\" mod if you have it, "
+                      + "or you'll see its drip too.");
     }
 
     /// What other plugins may do through Cummy: message partners' plugins, and show their own overlays on you.
@@ -686,17 +731,37 @@ public sealed class SettingsWindow : ThemedWindow
         ImGuiHelpers.ScaledDummy(4f);
 
         ImGuiHelpers.ScaledDummy(2f);
-        using var table = ImRaii.Table("##blocked", 2, ImGuiTableFlags.SizingStretchSame);
-        if (!table) return;
-        foreach (var part in BodyParts.DisplayOrder)
+        using (var table = ImRaii.Table("##blocked", 2, ImGuiTableFlags.SizingStretchSame))
         {
-            ImGui.TableNextColumn();
-            var blocked = part.IsBlockedBy(me.BlockMask);
-            if (ImGui.Checkbox($"{part.DisplayName()}##block{part.Id()}", ref blocked))
+            if (!table) return;
+            foreach (var part in BodyParts.DisplayOrder)
             {
-                me.BlockMask = blocked ? me.BlockMask | part.Bit() : me.BlockMask & ~part.Bit();
-                configuration.Save();
-                pairing.BroadcastBlocks(part);
+                ImGui.TableNextColumn();
+                var blocked = part.IsBlockedBy(me.BlockMask);
+                if (ImGui.Checkbox($"{part.DisplayName()}##block{part.Id()}", ref blocked))
+                {
+                    me.BlockMask = blocked ? me.BlockMask | part.Bit() : me.BlockMask & ~part.Bit();
+                    configuration.Save();
+                    pairing.BroadcastBlocks(part);
+                }
+            }
+        }
+
+        ImGuiHelpers.ScaledDummy(6f);
+        Ui.Heading("Creampie");
+        using (var holes = ImRaii.Table("##blockedHoles", 2, ImGuiTableFlags.SizingStretchSame))
+        {
+            if (!holes) return;
+            foreach (var hole in Holes.All)
+            {
+                ImGui.TableNextColumn();
+                var blocked = hole.IsBlockedBy(me.BlockMask);
+                if (ImGui.Checkbox($"{hole.DisplayName()}##blockHole{hole.Id()}", ref blocked))
+                {
+                    me.BlockMask = blocked ? me.BlockMask | hole.BlockBit() : me.BlockMask & ~hole.BlockBit();
+                    configuration.Save();
+                    pairing.BroadcastAllBlocks();
+                }
             }
         }
     }

@@ -28,7 +28,8 @@ public static class ManagedModManifest
     /// game path → path relative to the mod folder), and the options of the multi-select group
     /// <paramref name="groupName"/> (none = no group).
     public static void Write(string modRoot, string name, IReadOnlyDictionary<string, string> files, string groupName,
-                             IReadOnlyList<string> options)
+                             IReadOnlyList<string> options, IReadOnlyList<object>? manipulations = null,
+                             string? credit = null)
     {
         Directory.CreateDirectory(modRoot);
         var path = Path.Combine(modRoot, MetaFile);
@@ -41,7 +42,7 @@ public static class ManagedModManifest
             ["Author"] = "Cummy plugin",
             ["Description"] = "Managed by the Cummy plugin: your current layers, composited onto your own skin (and, "
                             + "with Proteus, the \"Cummy layers\" options Proteus composites). Rewritten automatically - "
-                            + "edits here are overwritten.",
+                            + "edits here are overwritten." + (credit != null ? "\n\n" + credit : ""),
             ["Version"] = "",
             ["Website"] = "",
             ["ModTags"] = Array.Empty<string>(),
@@ -51,7 +52,7 @@ public static class ManagedModManifest
                 ["FileSwaps"] = options.Count == 0
                     ? new Dictionary<string, string>()
                     : new Dictionary<string, string> { [NoOpSwap] = NoOpSwap },
-                ["Manipulations"] = Array.Empty<object>(),
+                ["Manipulations"] = manipulations ?? Array.Empty<object>(),
             },
             ["Groups"] = options.Count == 0 ? Array.Empty<object>() : new object[]
             {
@@ -79,6 +80,22 @@ public static class ManagedModManifest
         var tmp = path + "." + Path.GetRandomFileName() + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(manifest, WriteOptions));
         File.Move(tmp, path, overwrite: true);
+    }
+
+    /// The name the manifest at <paramref name="modRoot"/> shows, or null.
+    public static string? ReadName(string modRoot)
+    {
+        try
+        {
+            var path = Path.Combine(modRoot, MetaFile);
+            if (!File.Exists(path)) return null;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            return doc.RootElement.TryGetProperty("Name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? ReadIdentifier(string path)

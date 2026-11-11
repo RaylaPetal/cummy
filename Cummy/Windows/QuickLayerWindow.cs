@@ -32,8 +32,10 @@ public sealed class QuickLayerWindow : ThemedWindow
     private string? selectedKey;
     private bool dragging;
 
-    /// The dropdown's Layer / Lick toggle; Layer each time it opens.
-    private bool lickMode;
+    private enum Mode { Layer, Lick }
+
+    /// The dropdown's Layer / Lick toggle; Layer each time it opens. Layer also offers Creampie under the parts.
+    private Mode mode;
 
     public QuickLayerWindow(Configuration configuration, PairingService pairing, LayerState layers)
         : base("Cummy quick layer###CummyQuickLayer", BaseFlags)
@@ -82,7 +84,7 @@ public sealed class QuickLayerWindow : ThemedWindow
         if (clicked && !wasDragging)
         {
             selectedKey = TargetedPlayer();
-            lickMode = false;
+            mode = Mode.Layer;
             ImGui.OpenPopup(PopupId);
         }
 
@@ -124,16 +126,24 @@ public sealed class QuickLayerWindow : ThemedWindow
             return;
         }
 
-        if (ImGui.RadioButton("Layer", !lickMode)) lickMode = false;
+        if (ImGui.RadioButton("Layer", mode == Mode.Layer)) mode = Mode.Layer;
         ImGui.SameLine();
-        if (ImGui.RadioButton("Lick", lickMode)) lickMode = true;
+        if (ImGui.RadioButton("Lick", mode == Mode.Lick)) mode = Mode.Lick;
 
-        var enabled = !lickMode || PartGrid.InRange(target, Proximity.LickRange);
+        var enabled = mode != Mode.Lick || PartGrid.InRange(target, Proximity.LickRange);
         if (!enabled) Ui.Muted($"{target.Name} is too far away to lick.");
-        if (lickMode)
-            PartGrid.Draw(target, enabled, part => pairing.SendLick(target, part), "quicklick", lick: true, isPartner: selected.IsPartner);
-        else
-            PartGrid.Draw(target, enabled, part => pairing.SendLayer(target, part), "quick", isPartner: selected.IsPartner);
+        switch (mode)
+        {
+            case Mode.Lick:
+                PartGrid.Draw(target, enabled, part => pairing.SendLick(target, part), "quicklick", lick: true, isPartner: selected.IsPartner);
+                break;
+            default:
+                PartGrid.Draw(target, enabled, part => pairing.SendLayer(target, part), "quick", isPartner: selected.IsPartner);
+                ImGuiHelpers.ScaledDummy(4f);
+                Ui.Muted("Creampie");
+                PartGrid.DrawHoles(target, enabled, hole => pairing.SendCreampie(target, hole), "quickcreampie", isPartner: selected.IsPartner);
+                break;
+        }
     }
 
     /// Pair (unpaired players only) and Blacklist (hold Ctrl) for the selected player.

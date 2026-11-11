@@ -1,4 +1,4 @@
-// Cummy plugin API client (API version 5). Copy this file into your Dalamud plugin to call Cummy over IPC with types
+// Cummy plugin API client (API version 6). Copy this file into your Dalamud plugin to call Cummy over IPC with types
 // and named outcomes instead of raw call-gate strings. Cummy's README ("Plugin API") documents every endpoint.
 //
 //     var cummy = new CummyIpcClient.CummyIpc(PluginInterface);
@@ -54,6 +54,14 @@ public static class CummyStrings
     public const string Unchanged = "unchanged";
     public const string InvalidStage = "invalid-stage";
 
+    public const string Creampied = "creampied";
+    public const string Refreshed = "refreshed";
+    public const string UnknownHole = "unknown-hole";
+
+    /// Creampie holes (SendCreampie, CreampieSelf, GetCreampies, CleanSelf).
+    public const string Pussy = "pussy";
+    public const string Ass = "ass";
+
     public const string Accepted = "accepted";
     public const string TooMany = "too-many";
     public const string Removed = "removed";
@@ -80,13 +88,16 @@ public static class CummyStrings
     public const string CauseDry = "dry";
     public const string CauseClean = "clean";
     public const string CausePlugin = "plugin";
+    public const string CauseCreampie = "creampie";
+    public const string CauseTimer = "timer";
+    public const string CauseWash = "wash";
 }
 
 /// Typed access to every Cummy.* call gate. Construct once, dispose with your plugin.
 public sealed class CummyIpc : IDisposable
 {
     /// The API version this client was written for.
-    public const int ClientVersion = 5;
+    public const int ClientVersion = 6;
 
     // Lifecycle.
     public event Action? Ready;
@@ -119,6 +130,10 @@ public sealed class CummyIpc : IDisposable
     public event Action<string, string, string>? OverlayFailed;
     /// (owner, key): removed by the wearer, by your call, or because its owner unloaded.
     public event Action<string, string>? OverlayRemoved;
+
+    /// (hole, active, secondsLeft, cause, sourceName, sourceWorld): a creampie drip started, restarted or ended.
+    /// Causes: creampie (start), timer, wash, lick, clean, plugin.
+    public event Action<string, bool, int, string, string, string>? CreampieChanged;
 
     private readonly ICallGateSubscriber<int> apiVersion;
     private readonly ICallGateSubscriber<object> ready;
@@ -161,6 +176,10 @@ public sealed class CummyIpc : IDisposable
     private readonly ICallGateSubscriber<string, string, string, string, object> onMessage;
     private readonly ICallGateSubscriber<string, string, string, object> onOverlayFailed;
     private readonly ICallGateSubscriber<string, string, object> onOverlayRemoved;
+    private readonly ICallGateSubscriber<string, bool, int, string, string, string, object> onCreampieChanged;
+    private readonly ICallGateSubscriber<string, string, string, string> sendCreampie;
+    private readonly ICallGateSubscriber<string, string, string, string> creampieSelf;
+    private readonly ICallGateSubscriber<Dictionary<string, int>> getCreampies;
 
     public CummyIpc(IDalamudPluginInterface pi)
     {
@@ -205,6 +224,10 @@ public sealed class CummyIpc : IDisposable
         onMessage = pi.GetIpcSubscriber<string, string, string, string, object>("Cummy.OnMessage");
         onOverlayFailed = pi.GetIpcSubscriber<string, string, string, object>("Cummy.OnOverlayFailed");
         onOverlayRemoved = pi.GetIpcSubscriber<string, string, object>("Cummy.OnOverlayRemoved");
+        onCreampieChanged = pi.GetIpcSubscriber<string, bool, int, string, string, string, object>("Cummy.OnCreampieChanged");
+        sendCreampie = pi.GetIpcSubscriber<string, string, string, string>("Cummy.SendCreampie");
+        creampieSelf = pi.GetIpcSubscriber<string, string, string, string>("Cummy.CreampieSelf");
+        getCreampies = pi.GetIpcSubscriber<Dictionary<string, int>>("Cummy.GetCreampies");
 
         ready.Subscribe(OnReady);
         disposing.Subscribe(OnDisposing);
@@ -219,6 +242,7 @@ public sealed class CummyIpc : IDisposable
         onMessage.Subscribe(OnMessage);
         onOverlayFailed.Subscribe(OnOverlayFailed);
         onOverlayRemoved.Subscribe(OnOverlayRemoved);
+        onCreampieChanged.Subscribe(OnCreampieChanged);
     }
 
     public void Dispose()
@@ -236,6 +260,7 @@ public sealed class CummyIpc : IDisposable
         onMessage.Unsubscribe(OnMessage);
         onOverlayFailed.Unsubscribe(OnOverlayFailed);
         onOverlayRemoved.Unsubscribe(OnOverlayRemoved);
+        onCreampieChanged.Unsubscribe(OnCreampieChanged);
     }
 
     // Named handlers, so Dispose unsubscribes exactly what the constructor subscribed.
@@ -253,6 +278,8 @@ public sealed class CummyIpc : IDisposable
     private void OnMessage(string channel, string payload, string name, string world) => Message?.Invoke(channel, payload, name, world);
     private void OnOverlayFailed(string owner, string key, string reason) => OverlayFailed?.Invoke(owner, key, reason);
     private void OnOverlayRemoved(string owner, string key) => OverlayRemoved?.Invoke(owner, key);
+    private void OnCreampieChanged(string hole, bool active, int secondsLeft, string cause, string name, string world)
+        => CreampieChanged?.Invoke(hole, active, secondsLeft, cause, name, world);
 
     /// Cummy's API version, or 0 while Cummy isn't loaded. Safe from any thread.
     public int ApiVersion()
@@ -326,7 +353,8 @@ public sealed class CummyIpc : IDisposable
     /// sent, already-paired, pending, blacklisted, queue-full or no-character.
     public string Invite(string name, string world) => Call(() => invite.InvokeFunc(name, world), Na);
 
-    /// A part id or "all". cleaned, already-clean, locked, unknown-part or no-character.
+    /// A part id, "pussy"/"ass" (version 6: ends that creampie), or "all" (also ends both creampies). cleaned,
+    /// already-clean, locked, unknown-part or no-character.
     public string CleanSelf(string partId) => Call(() => cleanSelf.InvokeFunc(partId), Na);
 
     /// rinsed, already-clean, locked or no-character.
@@ -335,6 +363,20 @@ public sealed class CummyIpc : IDisposable
     /// set, unchanged, blocked, blacklisted, locked, invalid-stage, unknown-part or no-character.
     public string SetStage(string partId, int stage, string sourceName, string sourceWorld)
         => Call(() => setStage.InvokeFunc(partId, stage, sourceName, sourceWorld), Na);
+
+    // ── Creampies (version 6) ────────────────────────────────────────────────
+
+    /// Creampies a partner (or in Public mode anyone in range) with the normal tell. sent, not-paired, blacklisted,
+    /// out-of-range, blocked, queue-full or unknown-hole.
+    public string SendCreampie(string name, string world, string hole) => Call(() => sendCreampie.InvokeFunc(name, world, hole), Na);
+
+    /// Creampies the wearer as if that player had (no pairing, tell or range). creampied, refreshed, blocked,
+    /// blacklisted, unknown-hole or no-character.
+    public string CreampieSelf(string hole, string sourceName, string sourceWorld)
+        => Call(() => creampieSelf.InvokeFunc(hole, sourceName, sourceWorld), Na);
+
+    /// Seconds left per dripping hole.
+    public Dictionary<string, int> GetCreampies() => Call(() => getCreampies.InvokeFunc(), new Dictionary<string, int>());
 
     // ── Messaging ────────────────────────────────────────────────────────────
 
