@@ -19,7 +19,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.0.0/Cummy-2.7.0.0.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.0.0/Cummy-2.7.0.0.zip",
-    "Changelog": "- Other plugins can now build on Cummy: they can read your layers, react when they change, and layer, lick or clean you under your usual rules. They can never change your blocks, mode, blacklist or partners.\n- Plugins built on Cummy can send messages to the same plugin on a paired partner's game, over Cummy's hidden tells. Turn this off in Settings, General, Other plugins.\n- Plugins can show their own overlays on you (mud, paint...) above your layers, with or without Proteus. They're never saved, and you can see and remove each one, or turn them all off, in Settings, General, Other plugins.",
+    "Changelog": "- Cummy now uses a single mod in Penumbra instead of two. The old \"Cummy Layers\" mod is removed automatically, and its Proteus options now live inside the Cummy mod. Your layers carry over, nothing to do.\n- The Cummy mod is now named after your character, as Cummy [Name Surname @ World], and follows whoever is logged in.",
     "LastUpdate": "1794400060"
   }
 ]

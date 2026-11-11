@@ -27,6 +27,7 @@ public sealed class PenumbraIpc : IDisposable
     private readonly TrySetModPriority trySetModPriority;
     private readonly GetCurrentModSettings getCurrentModSettings;
     private readonly TrySetModSettings trySetModSettings;
+    private readonly DeleteMod deleteMod;
 
     private readonly EventSubscriber<ModSettingChange, Guid, string, bool> modSettingChangedSub;
     private readonly EventSubscriber<nint, int> gameObjectRedrawnSub;
@@ -61,6 +62,7 @@ public sealed class PenumbraIpc : IDisposable
         getModDirectory = new GetModDirectory(pi);
         getCurrentModSettings = new GetCurrentModSettings(pi);
         trySetModSettings = new TrySetModSettings(pi);
+        deleteMod = new DeleteMod(pi);
         addMod = new AddMod(pi);
         reloadMod = new ReloadMod(pi);
         trySetMod = new TrySetMod(pi);
@@ -241,6 +243,18 @@ public sealed class PenumbraIpc : IDisposable
             return ec == PenumbraApiEc.Success && settings is { Item1: true } s ? s.Item2 : null;
         }
         catch (Exception ex) { Plugin.Log.Error(ex, "GetCurrentModSettings failed"); return null; }
+    }
+
+    /// Deletes a mod folder through Penumbra (its files and every collection's settings for it).
+    public PenumbraApiEc DeleteMod(string modDirectory)
+    {
+        if (!IsAvailable) return PenumbraApiEc.SystemDisposed;
+        try
+        {
+            StampOwnChange();
+            return deleteMod.Invoke(modDirectory);
+        }
+        catch (Exception ex) { Plugin.Log.Error(ex, "DeleteMod failed"); return PenumbraApiEc.UnknownError; }
     }
 
     /// Remove a temporary mod left behind by an older build, which published that way.

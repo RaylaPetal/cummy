@@ -17,14 +17,15 @@ using Penumbra.Api.Enums;
 
 namespace Cummy.Compositor;
 
-/// Renders the layer state onto the local player's Bibo skin and publishes it through a managed Penumbra mod
-/// ("Cummy", in Penumbra's mod folder, enabled in the player's collection) - Proteus's approach. Planning
+/// Renders the layer state onto the local player's Bibo skin and publishes it through Cummy's one Penumbra mod
+/// (<see cref="ManagedMod"/>: folder "Cummy", named after the character, enabled in the player's collection) -
+/// Proteus's approach. Planning
 /// (Penumbra/game queries) runs on the framework thread; decoding, blending and encoding run on a background task.
 /// A newer state cancels a run in flight. After every manifest change we wait until Penumbra actually resolves the
 /// skin to the new file before redrawing, or the redraw can load the old skin.
 public sealed class CompositorService : IDisposable
 {
-    private const int ModPriority = 9999;
+    private const int ModPriority = ManagedMod.Priority;
 
     /// Bump when compositing or the shipped art changes, so cached outputs from an older build are not reused.
     private const int CompositeVersion = 10;
@@ -99,14 +100,13 @@ public sealed class CompositorService : IDisposable
     /// Plugin overlay art no longer used, freed the same way.
     private readonly ConcurrentQueue<string> staleStamps = new();
     private readonly PluginOverlays pluginOverlays;
+    private readonly ManagedMod managedMod;
 
     // Known once Penumbra reports its mod root.
     private string? modDir;
     private string? outDir;
     private UpstreamResolver? upstream;
-    private bool modRegistered;
     private bool legacyCleanupDone;
-    private readonly HashSet<Guid> enabledIn = new();
 
     private DateTime? dueAt;
     private CancellationTokenSource? running;
@@ -139,8 +139,10 @@ public sealed class CompositorService : IDisposable
     private readonly OverlayPackService pack;
 
     public CompositorService(PenumbraIpc penumbra, LayerState layers, IDataManager data, OverlaySources overlaySources,
-                             Configuration configuration, ProteusIpc proteus, PluginOverlays pluginOverlays)
+                             Configuration configuration, ProteusIpc proteus, PluginOverlays pluginOverlays,
+                             ManagedMod managedMod)
     {
+        this.managedMod = managedMod;
         this.pluginOverlays = pluginOverlays;
         this.penumbra = penumbra;
         this.layers = layers;
@@ -149,7 +151,8 @@ public sealed class CompositorService : IDisposable
         this.configuration = configuration;
         this.proteus = proteus;
         cache = new CompositeCache(overlaySources.RegionMapPath);
-        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers, pluginOverlays);
+        pack = new OverlayPackService(penumbra, proteus, overlaySources, cache, configuration, layers, pluginOverlays,
+                                      managedMod);
 
         // Older builds wrote their textures here and published a temporary mod; both are superseded.
         try
@@ -342,6 +345,9 @@ public sealed class CompositorService : IDisposable
             ScheduleRetry();
             return;
         }
+        // The one mod is named after whoever is logged in.
+        if (Plugin.ObjectTable.LocalPlayer is { } me)
+            managedMod.SetOwner(me.Name.TextValue, me.HomeWorld.Value.Name.ExtractText());
 
         if (penumbra.GetPlayerCollectionId() is not { } collection)
         {
@@ -818,42 +824,13 @@ public sealed class CompositorService : IDisposable
     /// The managed mod folder exists and is registered with Penumbra, and our texture folder is known.
     private bool EnsureManagedMod()
     {
+        if (!managedMod.Ensure()) return false;
         if (modDir == null)
         {
-            if (penumbra.GetModDirectory() is not { } root) return false;
-            modDir = Path.Combine(root, PenumbraIpc.ManagedModName);
+            modDir = managedMod.Dir!;
             outDir = Path.Combine(modDir, "textures");
             upstream = new UpstreamResolver(penumbra, modDir,
                 Path.Combine(Plugin.PluginInterface.GetPluginConfigDirectory(), "upstream.json"));
-        }
-        try
-        {
-            if (!ManagedModManifest.Exists(modDir))
-            {
-                ManagedModManifest.Write(modDir, new Dictionary<string, string>());
-                modRegistered = false;
-                Note($"Created the Cummy mod at {modDir}.");
-            }
-            else if (!modRegistered)
-            {
-                // First use this session: start empty, so redirects left by a crash can't show stale layers.
-                ManagedModManifest.Write(modDir, new Dictionary<string, string>());
-            }
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.Error(ex, $"Could not write the managed mod at {modDir}");
-            Note($"Could not write the Cummy mod: {ex.Message}");
-            return false;
-        }
-        if (!modRegistered)
-        {
-            if (!penumbra.AddMod(PenumbraIpc.ManagedModName))
-            {
-                Note("Penumbra refused to add the Cummy mod.");
-                return false;
-            }
-            modRegistered = true;
         }
         return true;
     }
@@ -873,34 +850,18 @@ public sealed class CompositorService : IDisposable
         // A path whose file changed proves the reload landed once it resolves to the new file.
         var changedPath = files.Keys.FirstOrDefault(k => !publishedFiles.TryGetValue(k, out var was)
                                                          || !string.Equals(was, files[k], StringComparison.OrdinalIgnoreCase));
-        try
-        {
-            ManagedModManifest.Write(modDir!, files);
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.Error(ex, "Could not write the managed mod manifest");
-            Status = "Couldn't write the Cummy mod";
-            Note($"{Status}: {ex.Message}");
-            return;
-        }
-
-        var reload = penumbra.ReloadMod(PenumbraIpc.ManagedModName);
+        var reload = managedMod.SetRedirects(files);
         if (reload is not (PenumbraApiEc.Success or PenumbraApiEc.NothingChanged))
         {
-            // Penumbra may have dropped it (e.g. after rediscovering mods): register again and retry.
-            Note($"Reloading the Cummy mod failed ({reload}); registering it again.");
-            modRegistered = false;
+            // Couldn't write it, or Penumbra dropped it (e.g. after rediscovering mods): register again and retry.
+            Status = "Couldn't update the Cummy mod";
+            Note($"Updating the Cummy mod failed ({reload}); registering it again.");
+            managedMod.ForgetRegistration();
             Schedule();
             return;
         }
-        if (!enabledIn.Contains(plan.Collection))
-        {
-            if (penumbra.EnableMod(plan.Collection, PenumbraIpc.ManagedModName, ModPriority))
-                enabledIn.Add(plan.Collection);
-            else
-                Note("Couldn't enable the Cummy mod in your collection - enable it in Penumbra.");
-        }
+        if (!managedMod.Enable(plan.Collection))
+            Note("Couldn't enable the Cummy mod in your collection - enable it in Penumbra.");
 
         publishedCollection = plan.Collection;
         publishedFiles = files;
@@ -920,16 +881,7 @@ public sealed class CompositorService : IDisposable
     private bool Unpublish()
     {
         if (publishedCollection == null || modDir == null) return false;
-        try
-        {
-            ManagedModManifest.Write(modDir, new Dictionary<string, string>());
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.Error(ex, "Could not empty the managed mod manifest");
-            return false;
-        }
-        penumbra.ReloadMod(PenumbraIpc.ManagedModName);
+        if (managedMod.SetRedirects(new Dictionary<string, string>()) == PenumbraApiEc.UnknownError) return false;
         lastUnpublishedPath = publishedFiles.Keys.FirstOrDefault();
         publishedCollection = null;
         publishedFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

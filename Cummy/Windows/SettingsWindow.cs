@@ -316,7 +316,7 @@ public sealed class SettingsWindow : ThemedWindow
             compositor.Schedule();
         }
         ImGuiComponents.HelpMarker("When the Proteus plugin is loaded, Cummy normally hands your body layers to it as an "
-                                 + "overlay pack (the \"Cummy Layers\" mod), so the two never fight over your skin. Tick "
+                                 + "overlay pack (the \"Cummy layers\" options of the Cummy mod), so the two never fight over your skin. Tick "
                                  + "this to keep Cummy's own look instead; then keep Proteus below Cummy in Penumbra.");
         ImGuiHelpers.ScaledDummy(8f);
 

@@ -12,16 +12,15 @@ using Cummy.ThirdParty.Proteus;
 
 namespace Cummy.Proteus;
 
-/// Cummy's body layers as a Proteus overlay pack: a normal Penumbra mod ("Cummy Layers") whose multi-select option
-/// group "Cummy layers" has one option per body part, plus a `Proteus/metadata.json` sidecar mapping each option to
-/// that part's art. Selecting the layered parts and asking Proteus to recomposite lets Proteus layer skin, its own
+/// Cummy's body layers as a Proteus overlay pack, inside Cummy's one Penumbra mod (<see cref="ManagedMod"/>): its
+/// multi-select option group "Cummy layers" has one option per body part (then other plugins' overlays), plus a
+/// `Proteus/metadata.json` sidecar mapping each option to that part's art. Selecting the layered parts and asking Proteus to recomposite lets Proteus layer skin, its own
 /// overlays and Cummy's layers in one pass, instead of the two plugins competing for the skin textures.
 /// Format: github.com/solona-m/proteus (Models/ProteusMetadata.cs, OverlayDescriptor.cs, SidecarDiscoveryService.cs).
 /// Framework thread, except the art rendering it starts itself.
 public sealed class OverlayPackService
 {
-    public const string ModFolder = "CummyLayers";
-    public const string GroupName = "Cummy layers";
+    public const string GroupName = ManagedMod.GroupName;
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -35,13 +34,10 @@ public sealed class OverlayPackService
     private readonly Configuration configuration;
     private readonly LayerState layers;
     private readonly PluginOverlays pluginOverlays;
+    private readonly ManagedMod managedMod;
 
-    private string? modDir;
-    // The plugin options meta.json was last written with (null = not yet this session).
-    private string? writtenOptionNames;
     // What each plugin overlay's option was last written with, by overlay id.
     private readonly Dictionary<string, (string Key, Dictionary<string, object>? Option)> writtenPlugins = new();
-    private bool registered;
     // What each part's option was last written with, so a change (e.g. one part's stage) rewrites only that part.
     // Pack writes run off-thread and may overlap; they take this lock.
     private readonly object packLock = new();
@@ -56,8 +52,13 @@ public sealed class OverlayPackService
     private IReadOnlyList<PluginOverlay> wantedPlugins = [];
 
     public OverlayPackService(PenumbraIpc penumbra, ProteusIpc proteus, OverlaySources overlaySources, CompositeCache cache,
-                              Configuration configuration, LayerState layers, PluginOverlays pluginOverlays)
+                              Configuration configuration, LayerState layers, PluginOverlays pluginOverlays,
+                              ManagedMod managedMod)
     {
+        this.managedMod = managedMod;
+        managedMod.Reloaded += OnReloaded;
+        // The old separate pack's layers stay in Proteus' composite until it recomposites.
+        managedMod.LegacyPackRemoved += () => artChanged = true;
         this.pluginOverlays = pluginOverlays;
         this.configuration = configuration;
         this.layers = layers;
@@ -74,7 +75,7 @@ public sealed class OverlayPackService
     {
         // Other plugins' body overlays ride along as options of their own, after the parts (so above Cummy's layers).
         var plugins = pluginOverlays.Showing.Where(e => e.Part is not { } p || !p.IsFacial()).ToList();
-        if (!EnsureMod(plugins)) return "Can't set up the Cummy Layers mod in Penumbra";
+        if (!EnsureMod(plugins)) return "Can't set up the Cummy mod in Penumbra";
         wantedCollection = collection;
         wantedLayers = layered;
         wantedPlugins = plugins;
@@ -90,14 +91,14 @@ public sealed class OverlayPackService
             if (renderingSignature != signature)
             {
                 renderingSignature = signature;
-                var dir = modDir!;
+                var dir = managedMod.Dir!;
                 Task.Run(() => WritePack(dir, sources, looks, bodyMaterials, plugins)).ContinueWith(t => Plugin.Framework.RunOnFrameworkThread(() =>
                 {
                     if (renderingSignature != signature) return;   // superseded
                     renderingSignature = null;
                     if (t.IsFaulted)
                     {
-                        Plugin.Log.Error(t.Exception!, "Writing the Cummy Layers pack failed.");
+                        Plugin.Log.Error(t.Exception!, "Writing the Cummy layers pack failed.");
                         return;
                     }
                     writtenSignature = signature;
@@ -133,15 +134,15 @@ public sealed class OverlayPackService
         var selection = $"{collection}:{string.Join(",", names)}";
         if (selection != lastSelection)
         {
-            if (!penumbra.EnableMod(collection, ModFolder, 0) || !penumbra.SetModOptions(collection, ModFolder, GroupName, names))
+            if (!managedMod.Enable(collection) || !penumbra.SetModOptions(collection, ManagedMod.Folder, GroupName, names))
                 return;
             lastSelection = selection;
-            Plugin.Log.Information($"Cummy Layers: selected [{string.Join(", ", names)}].");
+            Plugin.Log.Information($"Cummy layers: selected [{string.Join(", ", names)}].");
         }
         if (artChanged)
         {
             artChanged = false;
-            Plugin.Log.Information("Cummy Layers art changed; asking Proteus to recomposite.");
+            Plugin.Log.Information("Cummy layers art changed; asking Proteus to recomposite.");
             proteus.Recomposite();
         }
     }
@@ -151,91 +152,19 @@ public sealed class OverlayPackService
     /// Penumbra's name for a plugin overlay's option.
     private static string OptionName(PluginOverlay e) => $"Plugin: {e.Id}";
 
+    /// The one Cummy mod is set up and carries the "Cummy layers" options: the parts, then the plugin overlays.
     private bool EnsureMod(IReadOnlyList<PluginOverlay> plugins)
-    {
-        if (modDir == null)
-        {
-            if (penumbra.GetModDirectory() is not { } root) return false;
-            modDir = Path.Combine(root, ModFolder);
-        }
-        // Plugin options change the option list: rewrite it and have Penumbra re-read it (selection follows by name).
-        var pluginNames = plugins.Select(OptionName).ToList();
-        var optionNames = string.Join("|", pluginNames);
-        var namesChanged = writtenOptionNames != null && writtenOptionNames != optionNames;
-        try
-        {
-            if (!File.Exists(Path.Combine(modDir, "meta.json")) || !registered || namesChanged)
-                WriteMeta(modDir, pluginNames);
-            writtenOptionNames = optionNames;
-        }
-        catch (Exception ex)
-        {
-            Plugin.Log.Error(ex, $"Could not write {modDir}");
-            return false;
-        }
-        if (!registered)
-        {
-            penumbra.AddMod(ModFolder);   // already known after the first session: Penumbra just says so
-            penumbra.ReloadMod(ModFolder);
-            registered = true;
-        }
-        else if (namesChanged)
-        {
-            penumbra.ReloadMod(ModFolder);
-            lastSelection = null;   // option indices moved: select again by name
-        }
-        return true;
-    }
+        => managedMod.Ensure()
+           && managedMod.SetOptions(Parts.Select(p => p.DisplayName()).Concat(plugins.Select(OptionName)).ToList());
 
-    /// Penumbra's meta.json: no redirects of its own (one no-op swap, as Proteus-made packs have), and the
-    /// multi-select group whose options Proteus reads.
-    private static void WriteMeta(string dir, IReadOnlyList<string> pluginOptions)
+    /// Penumbra re-read the mod (after every composite of the face, or an option change): select again, in case the
+    /// reload reset the selection. Only once the pack is written and nothing is being written: otherwise the write's
+    /// completion selects.
+    private void OnReloaded()
     {
-        Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "meta.json");
-        var meta = new Dictionary<string, object?>
-        {
-            ["FileVersion"] = 4,
-            ["Identifier"] = ReadIdentifier(path) ?? Guid.NewGuid().ToString(),
-            ["Name"] = "Cummy Layers",
-            ["Author"] = "Cummy plugin",
-            ["Description"] = "Managed by the Cummy plugin: your body layers, composited by Proteus. Options are set "
-                            + "automatically - edits here are overwritten.",
-            ["Version"] = "",
-            ["Website"] = "",
-            ["ModTags"] = Array.Empty<string>(),
-            ["DefaultData"] = new Dictionary<string, object>
-            {
-                ["Files"] = new Dictionary<string, string>(),
-                ["FileSwaps"] = new Dictionary<string, string>
-                {
-                    ["chara/monster/m8030/obj/body/b0001/material/v0001/mt_m8030b0001_a.mtrl"] =
-                        "chara/monster/m8030/obj/body/b0001/material/v0001/mt_m8030b0001_a.mtrl",
-                },
-                ["Manipulations"] = Array.Empty<object>(),
-            },
-            ["Groups"] = new object[]
-            {
-                new Dictionary<string, object>
-                {
-                    ["Type"] = "Multi",
-                    ["Name"] = GroupName,
-                    ["Description"] = "Set by Cummy to your layered body parts.",
-                    ["Priority"] = 0,
-                    ["DefaultSettings"] = 0,
-                    ["Options"] = Parts.Select(p => p.DisplayName()).Concat(pluginOptions).Select(name => new Dictionary<string, object>
-                    {
-                        ["Name"] = name,
-                        ["Description"] = "",
-                        ["Priority"] = 0,
-                        ["Files"] = new Dictionary<string, string>(),
-                        ["FileSwaps"] = new Dictionary<string, string>(),
-                        ["Manipulations"] = Array.Empty<object>(),
-                    }).ToArray(),
-                },
-            },
-        };
-        WriteAtomic(path, JsonSerializer.Serialize(meta, Json));
+        lastSelection = null;
+        if (wantedCollection == Guid.Empty || writtenSignature == null || renderingSignature != null) return;
+        Select(wantedCollection, wantedLayers, wantedPlugins);
     }
 
     /// Each changed part's art (shipped full art copied as-is; custom, full-body-split and stage-cut art rendered) and
@@ -304,7 +233,7 @@ public sealed class OverlayPackService
             var option = Option(part, diffuse, normal, bodyMaterials, looks[part]);
             options.Add(option);
             writtenParts[part] = (key, option);
-            Plugin.Log.Debug($"Cummy Layers: wrote {part.Id()} ({source.Key}).");
+            Plugin.Log.Debug($"Cummy layers: wrote {part.Id()} ({source.Key}).");
         }
 
         WritePluginOptions(dir, materials, bodyMaterials, plugins, options);
@@ -312,12 +241,12 @@ public sealed class OverlayPackService
         var sidecar = new Dictionary<string, object>
         {
             ["FormatVersion"] = 1,
-            ["Name"] = "Cummy Layers",
+            ["Name"] = "Cummy layers",
             ["Author"] = "Cummy plugin",
             ["OptionGroups"] = new[] { new Dictionary<string, object> { ["PenumbraGroupName"] = GroupName, ["Options"] = options } },
         };
         WriteAtomic(Path.Combine(dir, "Proteus", "metadata.json"), JsonSerializer.Serialize(sidecar, Json));
-        Plugin.Log.Information($"Cummy Layers pack written for {string.Join(", ", bodyMaterials)}.");
+        Plugin.Log.Information($"Cummy layers pack written for {string.Join(", ", bodyMaterials)}.");
     }
 
     /// Other plugins' overlays, one option each after the parts: the whole image (a full-body image is already in the
@@ -368,7 +297,7 @@ public sealed class OverlayPackService
             var option = Descriptor(OptionName(e), $"art/{folder}", "diffuse.png", normal, bodyMaterials, skinToneMask: null);
             options.Add(option);
             writtenPlugins[e.Id] = (key, option);
-            Plugin.Log.Debug($"Cummy Layers: wrote plugin overlay {e.Id}.");
+            Plugin.Log.Debug($"Cummy layers: wrote plugin overlay {e.Id}.");
         }
     }
 
@@ -455,20 +384,5 @@ public sealed class OverlayPackService
         var tmp = path + "." + Path.GetRandomFileName() + ".tmp";
         File.WriteAllText(tmp, text);
         File.Move(tmp, path, overwrite: true);
-    }
-
-    private static string? ReadIdentifier(string path)
-    {
-        try
-        {
-            if (!File.Exists(path)) return null;
-            using var doc = JsonDocument.Parse(File.ReadAllText(path));
-            return doc.RootElement.TryGetProperty("Identifier", out var id) && id.ValueKind == JsonValueKind.String
-                ? id.GetString() : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

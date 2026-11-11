@@ -54,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MoodleService moodleService;
     private readonly PluginRelay relay;
     private readonly PluginOverlays pluginOverlays;
+    private readonly ManagedMod managedMod;
     private readonly CummyApi api;
 
     public Plugin()
@@ -70,7 +71,9 @@ public sealed class Plugin : IDalamudPlugin
         overlaySources = new OverlaySources(Configuration);
         proteus = new Cummy.Proteus.ProteusIpc(PluginInterface);
         pluginOverlays = new PluginOverlays(Configuration, PluginInterface);
-        compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus, pluginOverlays);
+        managedMod = new ManagedMod(penumbra);
+        compositor = new CompositorService(penumbra, layers, DataManager, overlaySources, Configuration, proteus, pluginOverlays,
+                                           managedMod);
         moodles = new MoodlesIpc(PluginInterface);
         moodleService = new MoodleService(Configuration, layers, pairing, moodles);
         relay = new PluginRelay(Configuration, layers, sender, listener);

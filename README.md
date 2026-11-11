@@ -6,7 +6,7 @@ A Dalamud plugin for FINAL FANTASY XIV that brings Second Life INM-style cum lay
 - **Layer** or **lick** a partner nearby from the same droplet button: choose them and click a body part.
 - **Pairing or Public** (in `/cummy settings`): in Pairing mode, the default, only partners can layer you. In Public mode anyone with Cummy nearby can layer or lick you without pairing, and you can layer anyone nearby. Your blocks and range still apply either way.
 - **Blacklist** someone (hold Ctrl in the droplet dropdown, or type `Name@World` in settings) and they can never layer, lick or invite you until you remove them. Blacklisting a partner unpairs them.
-- Layers are applied **on the wearer's own client**, on top of the skin they are actually wearing, and published through a "Cummy" mod in Penumbra (visible in its mod list), so sync plugins show them to everyone.
+- Layers are applied **on the wearer's own client**, on top of the skin they are actually wearing, and published through one Cummy mod in Penumbra, listed as `Cummy [Name Surname @ World]` after the logged-in character, so sync plugins show them to everyone. With the Proteus plugin, the same mod carries a "Cummy layers" option group that Proteus composites your body layers from. Older versions' separate "Cummy Layers" mod is removed automatically.
 - **Clean** yourself in `/cummy`, part by part or everything, or with `/cummy clean`. Optional drying off (off by default) cleans layered parts after a set time.
 - **Custom overlays** (in `/cummy settings`): choose one full-body image painted on the Bibo UV layout (transparent except the art, optionally with a normal map) and Cummy splits it into the body parts for you; per-part overrides replace single parts. They change how layers look on *your* body (which everyone sees); they aren't sent to partners.
 - `/cummy` opens the main window: your layers (clean one part or everything) and your partners (layer, or hold Ctrl to unpair). `/cummy clean` cleans everything, `/cummy clean chest` one part.
@@ -108,7 +108,7 @@ Plugins can talk to the same plugin on a paired partner's game. Messages travel 
 
 ### Overlays
 
-Plugins can show their own art on the wearer (mud, paint, marks...) through Cummy's compositor, so they never fight it for the skin textures. Overlays are composited above Cummy's own layers in the order they were first set, untinted by the wearer's layer look, and also on parts Cummy hasn't layered. Body overlays work both with Cummy's own compositor and in Proteus mode (as extra options of the Cummy Layers pack); Face overlays always go through Cummy's own compositor. Cleaning, rinsing and drying off never touch them.
+Plugins can show their own art on the wearer (mud, paint, marks...) through Cummy's compositor, so they never fight it for the skin textures. Overlays are composited above Cummy's own layers in the order they were first set, untinted by the wearer's layer look, and also on parts Cummy hasn't layered. Body overlays work both with Cummy's own compositor and in Proteus mode (as extra options of the Cummy mod's "Cummy layers" group); Face overlays always go through Cummy's own compositor. Cleaning, rinsing and drying off never touch them.
 
 Images use the same layouts as Cummy's custom overlays: a body image is a whole Bibo body texture (`full` is split into the body parts by Cummy's region map; a part target uses its image whole), and a Face image is in the face-paint layout. PNG, JPEG, TGA or BMP, at most 8192×8192.
 
