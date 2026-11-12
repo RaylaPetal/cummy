@@ -1,4 +1,5 @@
 using System;
+using Cummy.Ipc;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -33,6 +34,25 @@ public static class Proximity
 
     public static bool Within(PeerRecord peer, float range) => Within(peer.Name, peer.World, range);
 
+    /// Reads other players' Cummy presence tags; set once by Plugin. Without it (or without SimpleHeels) only partners
+    /// are ever listed nearby.
+    public static SimpleHeelsIpc? Heels { get; set; }
+
+    /// <paramref name="pc"/>'s Cummy presence tag, or null when SimpleHeels is missing or they have none.
+    public static PresenceTag? TagOf(IPlayerCharacter pc)
+        => Heels is { IsAvailable: true } heels ? PresenceTag.Parse(heels.Read(pc.ObjectIndex, PresenceTag.Key)) : null;
+
+    /// The presence tag of `name@world` if they are loaded nearby; null otherwise.
+    public static PresenceTag? TagOf(string name, string world)
+    {
+        foreach (var obj in Plugin.ObjectTable)
+            if (obj is IPlayerCharacter pc
+                && string.Equals(pc.Name.TextValue, name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(pc.HomeWorld.Value.Name.ExtractText(), world, StringComparison.OrdinalIgnoreCase))
+                return TagOf(pc);
+        return null;
+    }
+
     private static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(500);
     private static DateTime scannedAt = DateTime.MinValue;
     private static List<NearbyPlayer> nearby = [];
@@ -42,7 +62,9 @@ public static class Proximity
     private static readonly Dictionary<string, PeerRecord> strangers = new(StringComparer.OrdinalIgnoreCase);
 
     /// The players within layering range other than you, without blacklisted ones: paired partners first (their own
-    /// records, so blocks stay current), then everyone else, each by name. Rescanned at most every 500 ms.
+    /// records, so blocks stay current), then other Cummy users - strangers whose SimpleHeels presence tag parses, with
+    /// their blocks from it - each by name. Strangers without a tag (or anyone, without SimpleHeels) aren't listed.
+    /// Rescanned at most every 500 ms.
     public static IReadOnlyList<NearbyPlayer> NearbyPlayers(PairingService pairing)
     {
         if (DateTime.UtcNow - scannedAt < ScanInterval) return nearby;
@@ -58,15 +80,18 @@ public static class Proximity
                 var world = pc.HomeWorld.Value.Name.ExtractText();
                 if (name.Length == 0 || world.Length == 0 || pairing.IsBlacklisted(name, world)) continue;
                 if (found.Exists(n => n.Target.Matches(name, world))) continue;
+                var tag = TagOf(pc);
                 if (pairing.FindPeer(name, world) is { } peer)
                 {
-                    found.Add(new NearbyPlayer(peer, true));
+                    found.Add(new NearbyPlayer(peer, true, tag));
                     continue;
                 }
+                if (tag is not { } known) continue;   // no Cummy tag: not a Cummy user we can see
                 var key = $"{name}@{world}";
                 if (!strangers.TryGetValue(key, out var stranger))
                     strangers[key] = stranger = new PeerRecord { Name = name, World = world };
-                found.Add(new NearbyPlayer(stranger, false));
+                stranger.BlockMask = known.BlockMask;
+                found.Add(new NearbyPlayer(stranger, false, tag));
             }
         }
         // Forget strangers who left, so the cache doesn't grow.
@@ -83,4 +108,8 @@ public static class Proximity
 }
 
 /// Someone within layering range: a paired partner's own record, or an unpaired player's stand-in.
-public sealed record NearbyPlayer(PeerRecord Target, bool IsPartner);
+public sealed record NearbyPlayer(PeerRecord Target, bool IsPartner, PresenceTag? Tag = null)
+{
+    /// Whether layering, licking and creampieing them can work: a partner, or a stranger in Public mode while you are.
+    public bool CanAct(bool youArePublic) => IsPartner || (youArePublic && Tag is { Public: true });
+}

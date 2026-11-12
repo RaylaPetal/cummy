@@ -150,13 +150,19 @@ public sealed class PairingService : IDisposable
         return InviteOutcome.Sent;
     }
 
-    /// Whether a layer or lick to `name@world` may go out from here, within <paramref name="range"/>: null when it
-    /// may, with the target to send to (a partner, or in Public mode a transient stranger).
+    /// Whether a layer, lick or creampie to `name@world` may go out from here, within <paramref name="range"/>: null
+    /// when it may, with the target to send to (a partner, or in Public mode a transient stranger). A stranger whose
+    /// presence tag says Pairing mode would ignore it (not paired); one with a tag carries its blocks.
     public SendRefusal? CheckSend(string name, string world, float range, out PeerRecord? target)
     {
         target = null;
         if (IsBlacklisted(name, world)) return SendRefusal.Blacklisted;
         if (TargetFor(name, world) is not { } peer) return SendRefusal.NotPaired;
+        if (FindPeer(name, world) is null && Proximity.TagOf(name, world) is { } tag)
+        {
+            if (!tag.Public) return SendRefusal.NotPaired;
+            peer.BlockMask = tag.BlockMask;
+        }
         if (!Proximity.Within(peer, range)) return SendRefusal.OutOfRange;
         target = peer;
         return null;

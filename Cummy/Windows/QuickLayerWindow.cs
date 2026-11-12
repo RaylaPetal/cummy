@@ -120,11 +120,16 @@ public sealed class QuickLayerWindow : ThemedWindow
 
         var target = selected.Target;
         DrawPlayerActions(selected);
-        if (!selected.IsPartner && !pairing.PublicLayering)
+        if (!selected.CanAct(pairing.PublicLayering))
         {
-            Ui.Muted("Pair with them, or switch to Public in settings, to layer them.");
+            // A stranger's presence tag says which side is in Pairing mode: theirs ignores everything but an invite.
+            Ui.Muted(selected.Tag is { Public: false }
+                ? "They're in Pairing mode: pair with them to layer them."
+                : "Pair with them, or switch to Public in settings, to layer them.");
             return;
         }
+        // A partner's blocks come from their block messages, a stranger's from their presence tag.
+        var blocksKnown = selected.IsPartner || selected.Tag != null;
 
         if (ImGui.RadioButton("Layer", mode == Mode.Layer)) mode = Mode.Layer;
         ImGui.SameLine();
@@ -135,13 +140,13 @@ public sealed class QuickLayerWindow : ThemedWindow
         switch (mode)
         {
             case Mode.Lick:
-                PartGrid.Draw(target, enabled, part => pairing.SendLick(target, part), "quicklick", lick: true, isPartner: selected.IsPartner);
+                PartGrid.Draw(target, enabled, part => pairing.SendLick(target, part), "quicklick", lick: true, isPartner: blocksKnown);
                 break;
             default:
-                PartGrid.Draw(target, enabled, part => pairing.SendLayer(target, part), "quick", isPartner: selected.IsPartner);
+                PartGrid.Draw(target, enabled, part => pairing.SendLayer(target, part), "quick", isPartner: blocksKnown);
                 ImGuiHelpers.ScaledDummy(4f);
                 Ui.Muted("Creampie");
-                PartGrid.DrawHoles(target, enabled, hole => pairing.SendCreampie(target, hole), "quickcreampie", isPartner: selected.IsPartner);
+                PartGrid.DrawHoles(target, enabled, hole => pairing.SendCreampie(target, hole), "quickcreampie", isPartner: blocksKnown);
                 break;
         }
     }

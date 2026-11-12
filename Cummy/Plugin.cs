@@ -40,6 +40,8 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ChatListener listener;
     private readonly PairingService pairing;
     private readonly CreampieService creampies;
+    private readonly SimpleHeelsIpc heels;
+    private readonly PresencePublisher presence;
     private readonly GlamourerIpc glamourer;
     private readonly DripVfx dripVfx;
     private readonly DripRings dripRings;
@@ -72,6 +74,9 @@ public sealed class Plugin : IDalamudPlugin
         listener = new ChatListener();
         creampies = new CreampieService(Configuration, layers);
         pairing = new PairingService(Configuration, layers, sender, listener, creampies);
+        heels = new SimpleHeelsIpc(PluginInterface);
+        Proximity.Heels = heels;
+        presence = new PresencePublisher(layers, pairing, heels);
         penumbra = new PenumbraIpc(PluginInterface);
         overlaySources = new OverlaySources(Configuration);
         proteus = new Cummy.Proteus.ProteusIpc(PluginInterface);
@@ -135,6 +140,8 @@ public sealed class Plugin : IDalamudPlugin
         pairing.Dispose();
         listener.Dispose();
         sender.Dispose();
+        presence.Dispose();
+        heels.Dispose();
         creampies.Dispose();
         layers.Dispose();
     }

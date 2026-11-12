@@ -58,13 +58,11 @@ public sealed partial class CummyApi
         => (config.DryOffEnabled, config.DryOffMinutes, config.WashInWater, config.WashInRain, config.DripEnabled,
             config.ManualCleanAllowed);
 
-    /// Players within layer range the wearer could layer: no one blacklisted; partners (marked) always, strangers
-    /// only in Public mode.
+    /// The players the droplet lists within layer range: partners (marked) always, and other Cummy users (their
+    /// SimpleHeels presence tag), never anyone blacklisted. CanLayer says whether one can be layered.
     public List<(string Name, string World, bool Partner)> GetNearby()
     {
-        var anyone = pairing.PublicLayering;
         return Proximity.NearbyPlayers(pairing)
-            .Where(n => n.IsPartner || anyone)
             .Select(n => (n.Target.Name, n.Target.World, n.IsPartner))
             .ToList();
     }

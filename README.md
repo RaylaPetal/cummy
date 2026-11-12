@@ -4,6 +4,7 @@ A Dalamud plugin for FINAL FANTASY XIV that brings Second Life INM-style cum lay
 
 - **Pair** with someone nearby: click the droplet button, choose them and click *Pair*. They accept the invite and you're paired; either of you can *Unpair* at any time from `/cummy`.
 - **Layer** or **lick** a partner nearby from the same droplet button: choose them and click a body part. Under the parts, **Creampie** their pussy or ass: it drips for a while (the Emperor's New Ring is put on through Glamourer to carry the drip effect, which needs an IVCS skeleton) and layers their groin or butt. Washing in water or a lick there ends it; block either in settings.
+- **Who's nearby:** the droplet lists your partners, plus other Cummy users near you. Cummy finds them through a small SimpleHeels tag that sync services (Lightless, Mare...) carry, so nobody without Cummy ever gets a message. You need SimpleHeels and to be synced with them; without SimpleHeels only partners are listed. The tag shares your Pairing/Public mode and blocks with players you're synced with.
 - **Pairing or Public** (in `/cummy settings`): in Pairing mode, the default, only partners can layer you. In Public mode anyone with Cummy nearby can layer or lick you without pairing, and you can layer anyone nearby. Your blocks and range still apply either way.
 - **Blacklist** someone (hold Ctrl in the droplet dropdown, or type `Name@World` in settings) and they can never layer, lick or invite you until you remove them. Blacklisting a partner unpairs them.
 - Layers are applied **on the wearer's own client**, on top of the skin they are actually wearing, and published through one Cummy mod in Penumbra, listed as `Cummy [Name Surname @ World]` after the logged-in character, so sync plugins show them to everyone. With the Proteus plugin, the same mod carries a "Cummy layers" option group that Proteus composites your body layers from. Older versions' separate "Cummy Layers" mod is removed automatically.
@@ -69,7 +70,7 @@ Part IDs are the wire IDs in `Cummy/BodyPart.cs` (`GetParts` lists them): `mo` F
 | `Cummy.IsBlacklisted` | `(string name, string world) -> bool` | v5. Whether that player is on the wearer's blacklist (the list itself isn't exposed) |
 | `Cummy.GetPartners` | `() -> List<(string name, string world, List<string> blocked)>` | v5. Paired partners and the parts each is last known to block |
 | `Cummy.GetCleaning` | `() -> (bool dryOff, int dryMinutes, bool washWater, bool washRain, bool drip, bool manualClean)` | v5. Cleaning settings, and whether cleaning by hand (and `CleanSelf`) is allowed right now |
-| `Cummy.GetNearby` | `() -> List<(string name, string world, bool partner)>` | v5. Players within layer range the wearer could layer: never blacklisted ones; strangers only in Public mode |
+| `Cummy.GetNearby` | `() -> List<(string name, string world, bool partner)>` | v5. The players the droplet lists within layer range: partners, and other Cummy users found through their SimpleHeels presence tag (only partners without SimpleHeels); never blacklisted ones. `CanLayer` says whether one can be layered |
 | `Cummy.CanLayer` | `(string name, string world, string partId) -> string` | v5. What `SendLayer` would answer, with `ok` in place of `sent`. Sends nothing |
 
 ### Events
@@ -137,6 +138,8 @@ Overlays are kept in memory only. They go away when the plugin that owns them un
 Debug builds also register `Cummy.DebugLayerSelf` `(string partId) -> string`, which layers you as if `Debug Partner@Debug` had sent the tell, for testing against.
 
 ### Changes in version 6
+
+- Sends to strangers use their presence tag: `SendLayer`, `SendLick`, `SendCreampie` and `CanLayer` answer `not-paired` for a stranger in Pairing mode, and `blocked` for what their tag blocks. `GetNearby` lists strangers only when they carry the tag.
 
 - Creampies: `SendCreampie`, `CreampieSelf`, `GetCreampies`, `OnCreampieChanged`; `CleanSelf` takes `pussy`/`ass`, and `all` ends creampies too; `OnPartChanged` has the cause `creampie`.
 

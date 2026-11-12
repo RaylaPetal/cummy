@@ -301,6 +301,8 @@ public sealed class SettingsWindow : ThemedWindow
             : string.Join(", ", creampies.Active.Select(h => $"{h.ApiName()} {creampies.Remaining(h):mm\\:ss}")))
                  + $"   Ring via Glamourer: {(dripRings.CanWearRing ? "yes" : "no")}   Slots: "
                  + (dripRings.Assignment.Count == 0 ? "none" : string.Join(", ", dripRings.Assignment.Select(kv => $"{kv.Key.ApiName()}->{kv.Value}"))));
+        Ui.Muted($"My presence tag: {Proximity.Heels?.Read(0, PresenceTag.Key) ?? "none"}"
+                 + (Proximity.Heels is { IsAvailable: true } ? "" : " (SimpleHeels unavailable)"));
         Ui.Muted(pairing.IsBlacklisted(name, world) ? "They're blacklisted."
                  : pairing.FindPeer(name, world) != null ? "They're a partner."
                  : $"They're unpaired; you're in {(pairing.PublicLayering ? "Public" : "Pairing")} mode.");
@@ -538,9 +540,13 @@ public sealed class SettingsWindow : ThemedWindow
         if (isPublic)
         {
             using (ImRaii.PushColor(ImGuiCol.Text, Ui.Warning))
-                ImGui.TextWrapped("Your blocks and the usual range still apply. Layering someone who isn't paired sends "
-                                  + "them a tell without knowing if they have Cummy: without it, they see the raw message.");
+                ImGui.TextWrapped("Your blocks and the usual range still apply. Strangers you can layer are other Cummy "
+                                  + "users who are in Public mode too.");
         }
+        // Strangers are only found through the SimpleHeels presence tag, which sync services carry.
+        Ui.MutedWrapped(Proximity.Heels is { IsAvailable: true }
+            ? "Other Cummy users nearby show in the droplet when you're synced with them (Lightless, Mare...) and both have SimpleHeels."
+            : "Install SimpleHeels to see other Cummy users nearby - only partners are listed now.");
 
         ImGuiHelpers.ScaledDummy(4f);
         var entries = pairing.BlacklistEntries;

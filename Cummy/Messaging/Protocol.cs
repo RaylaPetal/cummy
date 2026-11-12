@@ -96,7 +96,7 @@ public static class Protocol
     /// Full Body's bit is never sent: it isn't blockable on its own any more (blocking parts limits it), and a cleared
     /// bit tells older partners they may send it. A Face block is also sent as a Forehead block, for older partners
     /// that have both; on receipt only Face's (Mouth's) bit counts.
-    private static string Mask(int mask)
+    internal static string Mask(int mask)
     {
         if (BodyPart.Face.IsBlockedBy(mask)) mask |= BodyPart.Forehead.Bit();
         else mask &= ~BodyPart.Forehead.Bit();
@@ -159,10 +159,10 @@ public static class Protocol
 
     /// `bly` masks may be this long, so a later version can add parts without this one rejecting the message; bits
     /// for parts this version doesn't know are dropped.
-    private const int MaxMaskDigits = 8;
+    internal const int MaxMaskDigits = 8;
 
     /// Masks of the older verbs: at most 3 hex digits and no unknown bits, as every version has required.
-    private static bool TryMask(string s, out int mask, int maxDigits = 3)
+    internal static bool TryMask(string s, out int mask, int maxDigits = 3)
     {
         mask = 0;
         if (s.Length == 0 || s.Length > maxDigits) return false;
