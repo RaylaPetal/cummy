@@ -11,9 +11,9 @@ namespace Cummy.State;
 /// Glamourer's actor-wide lock), and gives each slot back when its drip ends: the item and dyes it held before, unless
 /// the slot no longer shows the ring.
 ///
-/// Which slot carries which hole is <see cref="Assignment"/>: right for pussy and left for ass by preference, but a slot
-/// that something else holds (another plugin keeps putting its own item back) is given up and the hole moves to the
-/// other slot; when both drip on one usable slot, the most recent creampie wins. DripVfx builds the effects from it.
+/// One ring carries every running drip (<see cref="Assignment"/>: each dripping hole mapped to that slot): the right ring,
+/// or the left when something else holds the right (another plugin keeps putting its own item back, as Oathbound's slot
+/// locks do). DripVfx picks the ring's effect from which holes drip: pussy, ass, or the combined one for both.
 /// What a slot held before is stored per character (CharacterData.DripRings), so a restore that has to wait for
 /// Glamourer, a relog or a plugin reload still happens. Without Glamourer nothing is worn (settings says to wear the ring
 /// by hand) and the preferred slots carry the effects. Framework thread.
@@ -38,6 +38,7 @@ public sealed class DripRings : IDisposable
     private readonly HashSet<ApiEquipSlot> givenUp = new();
     private Dictionary<Hole, ApiEquipSlot> assignment = new();
     private bool enforcing;
+
 
     /// <see cref="Assignment"/> changed: DripVfx rebuilds the effects (before the rings move, so they load the new ones).
     public event Action? AssignmentChanged;
@@ -75,21 +76,12 @@ public sealed class DripRings : IDisposable
     /// creampie picks first.
     private Dictionary<Hole, ApiEquipSlot> Assign()
     {
-        var active = creampies.Active.OrderByDescending(h => creampies.Remaining(h) ?? TimeSpan.Zero).ToList();
+        var active = creampies.Active;
         if (active.Count == 0) givenUp.Clear();   // nothing drips: try every slot again next time
-        var result = new Dictionary<Hole, ApiEquipSlot>();
-        foreach (var hole in active)
-        {
-            var preferred = hole.RingSlot();
-            var other = preferred == ApiEquipSlot.RFinger ? ApiEquipSlot.LFinger : ApiEquipSlot.RFinger;
-            foreach (var slot in new[] { preferred, other })
-            {
-                if (givenUp.Contains(slot) || result.ContainsValue(slot)) continue;
-                result[hole] = slot;
-                break;
-            }
-        }
-        return result;
+        // One ring carries every drip (both holes at once through the combined effect): the right ring, or the left
+        // when something else holds the right.
+        var slot = Slots.Where(s => !givenUp.Contains(s)).Cast<ApiEquipSlot?>().FirstOrDefault();
+        return slot is { } ring ? active.ToDictionary(h => h, _ => ring) : new Dictionary<Hole, ApiEquipSlot>();
     }
 
     /// Recomputes the assignment (rebuilding the effects when it changed), then puts the ring on each assigned slot and
@@ -152,7 +144,7 @@ public sealed class DripRings : IDisposable
         enforcing = true;   // our own SetItem raises a state change too
         try
         {
-            foreach (var slot in assignment.Values.ToList())
+            foreach (var slot in assignment.Values.Distinct().ToList())
             {
                 var key = slot.ToString();
                 if (!me.DripRings.ContainsKey(key) || givenUp.Contains(slot)) continue;

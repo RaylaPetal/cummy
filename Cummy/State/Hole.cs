@@ -1,8 +1,6 @@
-using Glamourer.Api.Enums;
-
 namespace Cummy.State;
 
-/// Where a creampie goes. Each has its own drip timer, block bit, ring slot and accompanying body part.
+/// Where a creampie goes. Each has its own drip timer, block bit and accompanying body part.
 public enum Hole { Pussy, Ass }
 
 public static class Holes
@@ -24,9 +22,6 @@ public static class Holes
     public static int BlockBit(this Hole hole) => hole == Hole.Pussy ? BodyParts.CreampiePussyBit : BodyParts.CreampieAssBit;
 
     public static bool IsBlockedBy(this Hole hole, int blockMask) => (blockMask & hole.BlockBit()) != 0;
-
-    /// The ring slot its drip ring goes on: right for pussy, left for ass (each slot has its own VFX id).
-    public static ApiEquipSlot RingSlot(this Hole hole) => hole == Hole.Pussy ? ApiEquipSlot.RFinger : ApiEquipSlot.LFinger;
 
     public static bool TryParseId(string id, out Hole hole)
     {

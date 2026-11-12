@@ -9,11 +9,11 @@ using Dalamud.Game.ClientState.Objects.Enums;
 namespace Cummy.Compositor;
 
 /// The creampie drip in Cummy's mod, only while a drip runs (Dripping Pussy VFX by Tirda Frye, shipped in
-/// Assets/drip). The Emperor's New Ring (accessory 53, variant 1) gets an IMC VFX id per ring slot, following
-/// <see cref="DripRings.Assignment"/>: the slot carrying pussy VfxId 1 → va0001 (pussy.avfx), the slot carrying ass
-/// VfxId 2 → va0002 (ass.avfx), so both can drip at once and either can use whichever slot is free. While any drips,
-/// the ring model and the wearer's own race's attach-point file (with the drip's points added to what Penumbra resolves
-/// for it) ride along. <see cref="DripRings"/> puts the ring on. Framework thread.
+/// Assets/drip). The drip ring (the Emperor's New Ring, accessory 53, variant 1) gets an IMC VFX id on the slot
+/// <see cref="DripRings.Assignment"/> picks: VfxId 1 → va0001 (pussy.avfx), 2 → va0002 (ass.avfx), or 3 → va0003
+/// (both.avfx, built by tools/build-drip-both.py) when both holes drip. While any drips, the ring model and the wearer's
+/// own race's attach-point file (with the drip's points added to what Penumbra resolves for it) ride along.
+/// <see cref="DripRings"/> puts the ring on. Framework thread.
 public sealed class DripVfx : IDisposable
 {
     private const string AccessoryRoot = "chara/accessory/a0053";
@@ -66,11 +66,15 @@ public sealed class DripVfx : IDisposable
             [RingModel] = $"{Folder}/ring.mdl",
         };
         var manipulations = new List<object>();
-        foreach (var (hole, slot) in active)
+        // One ring per slot (in practice one ring): its VFX id picks pussy (1), ass (2) or both at once (3).
+        foreach (var group in active.GroupBy(kv => kv.Value))
         {
-            var vfxId = hole == Hole.Pussy ? 1 : 2;
-            files[Vfx(vfxId)] = $"{Folder}/{(hole == Hole.Pussy ? "pussy" : "ass")}.avfx";
-            manipulations.Add(Imc(slot.ToString(), vfxId));
+            var holes = group.Select(kv => kv.Key).ToHashSet();
+            var (vfxId, file) = holes.Count == 2 ? (3, "both")
+                              : holes.Contains(Hole.Pussy) ? (1, "pussy")
+                              : (2, "ass");
+            files[Vfx(vfxId)] = $"{Folder}/{file}.avfx";
+            manipulations.Add(Imc(group.Key.ToString(), vfxId));
         }
         if (PatchEid(dir) is { } eid) files[eid.GamePath] = eid.File;
 
@@ -106,7 +110,7 @@ public sealed class DripVfx : IDisposable
         try
         {
             Directory.CreateDirectory(dir);
-            foreach (var name in new[] { "pussy.avfx", "ass.avfx", "ring.mdl" })
+            foreach (var name in new[] { "pussy.avfx", "ass.avfx", "both.avfx", "ring.mdl" })
                 File.Copy(Path.Combine(assetsDir, name), Path.Combine(dir, name), overwrite: true);
             assetsCopied = true;
             return true;

@@ -471,7 +471,7 @@ public sealed class SettingsWindow : ThemedWindow
                                  + "layers your groin or butt. Washing in water or a partner licking that part ends it early. "
                                  + "Block either in the Blocked tab.");
         if (!dripRings.CanWearRing)
-            Ui.MutedWrapped("Glamourer isn't available: wear the Emperor's New Ring yourself (right hand for pussy, left for ass) "
+            Ui.MutedWrapped("Glamourer isn't available: wear the Emperor's New Ring yourself (right hand) "
                           + "to see the drip.");
         Ui.MutedWrapped("The drip attaches to IVCS skeleton bones. Turn off the \"Dripping Pussy VFX\" mod if you have it, "
                       + "or you'll see its drip too.");
