@@ -144,6 +144,14 @@ internal static class Ui
         ImGuiHelpers.ScaledDummy(2f);
     }
 
+    /// A section title led by an accent icon, with a rule under it.
+    public static void Heading(FontAwesomeIcon icon, string text)
+    {
+        Icon(icon, Accent);
+        ImGui.SameLine();
+        Heading(text);
+    }
+
     /// A section title with a count pill next to it, and a rule under it.
     public static void Heading(string text, int count)
     {

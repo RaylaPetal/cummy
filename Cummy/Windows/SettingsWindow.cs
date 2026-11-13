@@ -635,6 +635,13 @@ public sealed class SettingsWindow : ThemedWindow
         using var combo = ImRaii.Combo("Moodle##moodlePick", configuration.MoodleId == Guid.Empty ? "Choose a moodle" : MoodleName());
         if (!combo) return;
 
+        if (ImGui.Selectable("None##moodleNone", configuration.MoodleId == Guid.Empty))
+        {
+            configuration.MoodleId = Guid.Empty;
+            configuration.MoodleTitle = string.Empty;
+            configuration.Save();
+        }
+
         var list = moodles.Moodles(reload: ImGui.IsWindowAppearing());
         if (list.Count == 0) Ui.Muted("You have no saved moodles.");
         foreach (var m in list)
@@ -645,7 +652,7 @@ public sealed class SettingsWindow : ThemedWindow
                 ImGui.Image(icon.Handle, iconSize);
                 ImGui.SameLine();
             }
-            if (ImGui.Selectable($"{(m.Title.Length > 0 ? m.Title : m.Path)}##{m.Id}", m.Id == configuration.MoodleId))
+            if (ImGui.Selectable($"{(m.Title.Length > 0 ? PlainTitle(m.Title) : m.Path)}##{m.Id}", m.Id == configuration.MoodleId))
             {
                 configuration.MoodleId = m.Id;
                 configuration.MoodleTitle = m.Title;
@@ -661,9 +668,13 @@ public sealed class SettingsWindow : ThemedWindow
     {
         foreach (var m in moodles.Moodles())
             if (m.Id == configuration.MoodleId)
-                return m.Title.Length > 0 ? m.Title : m.Path;
-        return configuration.MoodleTitle.Length > 0 ? configuration.MoodleTitle : "Unknown moodle";
+                return m.Title.Length > 0 ? PlainTitle(m.Title) : m.Path;
+        return configuration.MoodleTitle.Length > 0 ? PlainTitle(configuration.MoodleTitle) : "Unknown moodle";
     }
+
+    /// A moodle title without Moodles' BBCode-style formatting tags ([color=white], [/color], [glow=...], [i]...).
+    private static string PlainTitle(string title)
+        => System.Text.RegularExpressions.Regex.Replace(title, @"\[/?[a-zA-Z]+(=[^\]]*)?\]", "");
 
     /// How layers look on your body. Every change recomposites your skin, so it applies when a control is released.
     private void DrawLook()

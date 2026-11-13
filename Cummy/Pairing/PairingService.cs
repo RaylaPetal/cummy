@@ -234,7 +234,7 @@ public sealed class PairingService : IDisposable
             Notifier.Error("Slow down - too many layers waiting to send.");
             return false;
         }
-        Notifier.Info($"Layered {peer.Name}'s {part.DisplayName().ToLowerInvariant()}.");
+        Notifier.Info($"You came on {peer.Name}'s {part.DisplayName().ToLowerInvariant()}.");
         return true;
     }
 
@@ -247,7 +247,7 @@ public sealed class PairingService : IDisposable
             Notifier.Error("Slow down - too many messages waiting to send.");
             return false;
         }
-        Notifier.Info($"Creampied {peer.Name}'s {hole.DisplayName().ToLowerInvariant()}.");
+        Notifier.Info($"You filled {peer.Name}'s {hole.DisplayName().ToLowerInvariant()} with cum.");
         return true;
     }
 
@@ -571,8 +571,8 @@ public sealed class PairingService : IDisposable
         }
         var minutes = (int)config.CreampieDuration.TotalMinutes;
         Notifier.Info(wasRunning
-            ? $"{name} creampied your {hole.DisplayName().ToLowerInvariant()} again - dripping for {minutes} more minutes{note}."
-            : $"{name} creampied your {hole.DisplayName().ToLowerInvariant()} - dripping for {minutes} minutes{note}.");
+            ? $"{name} pumped another load into your {hole.DisplayName().ToLowerInvariant()} - leaking for {minutes} more minutes{note}."
+            : $"{name} filled your {hole.DisplayName().ToLowerInvariant()} with cum - leaking for {minutes} minutes{note}.");
         return wasRunning ? ApiStrings.Refreshed : ApiStrings.Creampied;
     }
 
@@ -644,14 +644,14 @@ public sealed class PairingService : IDisposable
         {
             case LayerOutcome.Layered:
                 Notifier.Info(part.StageCount() > 1
-                    ? $"{name} layered your {partName} (stage {stage} of {part.StageCount()})."
-                    : $"{name} layered your {partName}.");
+                    ? $"{name} came all over your {partName} (stage {stage} of {part.StageCount()})."
+                    : $"{name} came all over your {partName}.");
                 break;
             case LayerOutcome.Advanced:
-                Notifier.Info($"{name} layered your {partName}, now at stage {stage} of {part.StageCount()}.");
+                Notifier.Info($"{name} added another load to your {partName} - now at stage {stage} of {part.StageCount()}.");
                 break;
             case LayerOutcome.Full:
-                Notifier.Info($"{name} tried to layer your {partName}, but it's already fully covered.");
+                Notifier.Info($"{name} tried to cum on your {partName}, but it's already completely plastered.");
                 break;
         }
         // Every visible change, so the wearer's moodle (and its VFX) lands with each new stage too.
@@ -673,12 +673,12 @@ public sealed class PairingService : IDisposable
         var (changed, stage) = layers.LayerAll(me.BlockMask, new LayerChange(ChangeCause.FullBody, name, world));
         if (changed.Count == 0)
         {
-            Notifier.Info($"{name} tried to layer your whole body, but it's already fully covered.");
+            Notifier.Info($"{name} tried to paint your whole body, but you're already completely plastered.");
             return;
         }
         Notifier.Info(stage is > 1
-            ? $"{name} layered your whole body, now at stage {stage} of {BodyParts.MaxStages}."
-            : $"{name} layered your whole body.");
+            ? $"{name} painted your whole body again - now at stage {stage} of {BodyParts.MaxStages}."
+            : $"{name} painted your whole body with cum.");
         LayerAccepted?.Invoke(BodyPart.FullBody);
         LayerReceived?.Invoke(BodyPart.FullBody, name, world);
     }

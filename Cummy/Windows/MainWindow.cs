@@ -73,24 +73,29 @@ public sealed class MainWindow : ThemedWindow
     private void DrawBanner()
     {
         var count = BodyParts.DisplayOrder.Count(layers.IsLayered);
-        if (count == 0 && creampies.Active.Count == 0)
+        var dripping = creampies.Active;
+        if (count == 0 && dripping.Count == 0)
         {
             Ui.Card("banner", CardStyle.MutedBanner, () =>
             {
                 Ui.Icon(FontAwesomeIcon.Check, Ui.MutedText);
                 ImGui.SameLine();
-                Ui.Muted("You're clean.");
+                Ui.Muted("Clean... for now.");
             });
             return;
         }
 
         Ui.Card("banner", CardStyle.Banner, () =>
         {
+            // One line per kind the wearer actually has: sticky layers, leaking creampies.
             ImGui.BeginGroup();
-            Ui.Icon(FontAwesomeIcon.Tint, Ui.Accent);
-            ImGui.SameLine();
-            ImGui.TextColored(Ui.Accent, "LAYERED");
-            ImGui.TextUnformatted(count == 1 ? "1 part" : $"{count} parts");
+            if (count > 0)
+                BannerLine(FontAwesomeIcon.Splotch, "Covered in cum", count == 1 ? "1 spot glazed" : $"{count} spots glazed");
+            if (dripping.Count > 0)
+            {
+                var holes = string.Join(" and ", dripping.Select((h, i) => i == 0 ? h.DisplayName() : h.DisplayName().ToLowerInvariant()));
+                BannerLine(FontAwesomeIcon.Tint, "Creampied", $"{holes} leaking");
+            }
             ImGui.EndGroup();
 
             // With drying off or washing off on, only those (and a partner's lick) clean you: say how instead.
@@ -106,9 +111,18 @@ public sealed class MainWindow : ThemedWindow
             {
                 if (ImGuiComponents.IconButtonWithText(FontAwesomeIcon.Broom, label)
                     && (layers.CleanAll(LayerChange.Of(ChangeCause.Clean)) | creampies.EndAll(CreampieCause.Clean) > 0))
-                    Notifier.Info("All cleaned up.");
+                    Notifier.Info("All wiped clean... for now.");
             }
         });
+    }
+
+    private static void BannerLine(FontAwesomeIcon icon, string headline, string detail)
+    {
+        Ui.Icon(icon, Ui.Accent);
+        ImGui.SameLine();
+        ImGui.TextColored(Ui.Accent, headline);
+        ImGui.SameLine();
+        ImGui.TextUnformatted(detail);
     }
 
     private void DrawStatus()
@@ -150,7 +164,7 @@ public sealed class MainWindow : ThemedWindow
         if (active.Count == 0) return;
 
         ImGuiHelpers.ScaledDummy(4f);
-        Ui.Heading("Dripping");
+        Ui.Heading(FontAwesomeIcon.Water, "Leaking cum");
         foreach (var hole in active)
         {
             Ui.Card($"creampie{hole.Id()}", CardStyle.Normal, () =>
@@ -167,8 +181,8 @@ public sealed class MainWindow : ThemedWindow
                 ImGui.SameLine();
                 if (ImGuiComponents.IconButton($"stop{hole.Id()}", FontAwesomeIcon.Broom)
                     && creampies.End(hole, CreampieCause.Clean))
-                    Notifier.Info($"Cleaned out your {hole.DisplayName().ToLowerInvariant()}.");
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Clean it out (stops the drip)");
+                    Notifier.Info($"Scooped the cum out of your {hole.DisplayName().ToLowerInvariant()}.");
+                if (ImGui.IsItemHovered()) ImGui.SetTooltip("Scoop it out (stops the leaking)");
             });
         }
     }
@@ -178,7 +192,7 @@ public sealed class MainWindow : ThemedWindow
         var layered = BodyParts.DisplayOrder.Where(layers.IsLayered).ToList();
         if (layered.Count == 0) return;
 
-        Ui.Heading("Your layers");
+        Ui.Heading(FontAwesomeIcon.Splotch, "Glazed in cum");
         var data = layers.Current!;
         foreach (var part in layered)
         {
@@ -204,19 +218,19 @@ public sealed class MainWindow : ThemedWindow
                 {
                     if (ImGuiComponents.IconButton($"clean{part.Id()}", FontAwesomeIcon.Broom))
                         Clean(part);
-                    if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Clean your {part.DisplayName().ToLowerInvariant()}");
+                    if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Wipe the cum off your {part.DisplayName().ToLowerInvariant()}");
                 }
             });
         }
 
         // Where the layers are about to drip (only while dripping is on: the service keeps no countdowns otherwise).
         foreach (var (part, wait) in drip.Pending())
-            Ui.Muted($"{part.DisplayName()}: drip in {(wait < TimeSpan.FromMinutes(1) ? "<1m" : Ui.Span(wait))}");
+            Ui.Muted($"{part.DisplayName()}: starts dripping in {(wait < TimeSpan.FromMinutes(1) ? "<1m" : Ui.Span(wait))}");
     }
 
     private void Clean(BodyPart part)
     {
-        if (layers.Clean(part, LayerChange.Of(ChangeCause.Clean))) Notifier.Info($"Cleaned your {part.DisplayName().ToLowerInvariant()}.");
+        if (layers.Clean(part, LayerChange.Of(ChangeCause.Clean))) Notifier.Info($"Wiped the cum off your {part.DisplayName().ToLowerInvariant()}.");
     }
 
     /// "12m ago", plus the time left before it dries when drying off is on (amber in its last 5 minutes).

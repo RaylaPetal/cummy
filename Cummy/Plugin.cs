@@ -191,11 +191,11 @@ public sealed class Plugin : IDalamudPlugin
         {
             var cleaned = layers.CleanAll(LayerChange.Of(ChangeCause.Clean));
             cleaned |= creampies.EndAll(CreampieCause.Clean) > 0;
-            Notifier.Info(cleaned ? "All cleaned up." : "You're already clean.");
+            Notifier.Info(cleaned ? "All wiped clean... for now." : "You're already clean.");
             return;
         }
         var partName = part.DisplayName().ToLowerInvariant();
-        Notifier.Info(layers.Clean(part, LayerChange.Of(ChangeCause.Clean)) ? $"Cleaned your {partName}." : $"Your {partName} is already clean.");
+        Notifier.Info(layers.Clean(part, LayerChange.Of(ChangeCause.Clean)) ? $"Wiped the cum off your {partName}." : $"Your {partName} is already clean.");
     }
 
     public void ToggleConfigUi() => settingsWindow.Toggle();
