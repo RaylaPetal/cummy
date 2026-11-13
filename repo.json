@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "2.7.2.1",
+    "AssemblyVersion": "2.7.2.2",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -18,9 +18,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.1/Cummy-2.7.2.1.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.1/Cummy-2.7.2.1.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.2/Cummy-2.7.2.2.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.2/Cummy-2.7.2.2.zip",
     "Changelog": "- Cummy's main window now shows layers and creampies separately: a sticky splat for cum on your body, a droplet for a creampie, and no more \"0 parts\" when you're only creampied.\n- Lewder wording in the main window and in the messages you get when you layer or creampie someone, or they do it to you.\n- Settings > Moodles: you can pick None to clear the moodle choice, and moodle names no longer show Moodles' [color] tags.",
-    "LastUpdate": "1794491023"
+    "LastUpdate": "1794573915"
   }
 ]
