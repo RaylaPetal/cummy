@@ -16,8 +16,9 @@ It writes Cummy/Assets/mo/ (Face keeps Mouth's wire id, which is also its asset 
                white and the layer reads as flat paint.
   normal.png   relief from the brightness taken as height, with the diffuse alpha, so the game's lighting and the
                compositor's gloss catch the strands
-  stages.png   8-bit greyscale, pixel = the first stage (1-3) that covers it, 0 = no art. Cummy shows stage N as the
-               diffuse where stages.png is 1..N, as for the staged body parts (tools/build-assets.py).
+  stages.png   8-bit greyscale arrival field in the staged body parts' format (tools/build-assets.py): the first
+               stage n covering a pixel is written as STAGE_VALUES[n], the middle of that stage's band, so each stage
+               shows exactly the pixels it covers; 255 = no art.
 plus Textures/Regions/face-preview.png, the three stages over grey, for a quick look.
 
 Cummy maps these onto each wearer's own face at composite time. Needs Pillow.
@@ -35,6 +36,9 @@ TARGET = ROOT / "Cummy" / "Assets" / "mo"
 PREVIEW = ROOT / "Textures" / "Regions" / "face-preview.png"
 
 STAGES = 3
+# Field value of a pixel first covered at stage n (index n), and of no art; must match tools/build-assets.py.
+STAGE_VALUES = (255, 40, 120, 200)
+NO_ART = 255
 # Coomface option folder -> stage, for `import`.
 IMPORT_OPTIONS = {"chin": 1, "chin+forehead": 2, "face": 3}
 IMPORT_TEX = Path("chara") / "common" / "texture" / "decal_face" / "_decal_9.tex"
@@ -191,7 +195,7 @@ def alpha_stats(alpha: Image.Image) -> str:
 
 
 def stage_map(levels: list[Image.Image], diffuse_alpha: Image.Image) -> Image.Image:
-    """stages.png: the first stage covering each pixel. Art covered by no stage's coverage (the last stage's own
+    """stages.png: the first stage covering each pixel, as STAGE_VALUES. Art covered by no stage's coverage (the last stage's own
     edges after resampling) is the last stage; stage n's specks outside stage n+1 are dropped from stage n."""
     masks = [level.point(lambda v: 255 if v > NOISE else 0) for level in levels]
     for n in range(STAGES - 1, 0, -1):            # innermost last: each mask clipped to the (clipped) next one
@@ -203,7 +207,7 @@ def stage_map(levels: list[Image.Image], diffuse_alpha: Image.Image) -> Image.Im
     stages = diffuse_alpha.point(lambda v: STAGES if v else 0)
     for n in range(STAGES - 1, 0, -1):
         stages.paste(n, mask=ImageChops.darker(masks[n - 1], diffuse_alpha.point(lambda v: 255 if v else 0)))
-    return stages
+    return stages.point(lambda v: STAGE_VALUES[v] if v <= STAGES else NO_ART)
 
 
 def build() -> int:
@@ -231,9 +235,9 @@ def build() -> int:
     sheet = Image.new("RGBA", (OUT_SIZE * STAGES, OUT_SIZE), (90, 90, 90, 255))
     for n in range(1, STAGES + 1):
         shown = diffuse.copy()
-        shown.putalpha(ImageChops.multiply(diffuse.getchannel("A"),
-                                           stages.point(lambda v, n=n: 255 if 0 < v <= n else 0)))
-        covered = stages.point(lambda v, n=n: 255 if 0 < v <= n else 0).histogram()[255]
+        shown_at = stages.point(lambda v, n=n: 255 if v != NO_ART and v <= STAGE_VALUES[n] else 0)
+        shown.putalpha(ImageChops.multiply(diffuse.getchannel("A"), shown_at))
+        covered = shown_at.histogram()[255]
         print(f"stage {n}: {covered} px")
         tile = Image.new("RGBA", diffuse.size, (90, 90, 90, 255))
         tile.alpha_composite(shown)

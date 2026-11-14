@@ -17,10 +17,10 @@ public sealed record FaceMapping(FaceModel Model, string Stamp);
 /// What stays expensive between composites, kept until the wearer's skin changes:
 /// <list type="bullet">
 /// <item>each skin texture decoded, plus its BC3 mip chain encoded once, keyed by the upstream file's stamp;</item>
-/// <item>each part's overlay decoded, resized to the skin's size, cut to its stage and cropped to its coverage, keyed
+/// <item>each part's overlay decoded, resized to the skin's size, faded to its stage and cropped to its coverage, keyed
 /// by its source's stamp and stage (so changed art is never served from the cache; only the current stage is kept);</item>
 /// <item>the wearer's custom images decoded at each skin size, and the label maps (the region map that splits a
-/// full-body image, the stage maps that cut staged parts) at each size.</item>
+/// full-body image, the stage maps that fade staged parts) at each size.</item>
 /// </list>
 /// A composite then starts from a copy of the cached skin, paints only the parts' rectangles, and re-encodes only
 /// the 4×4 blocks that contain art; every other block is copied from the cached skin encoding. That is exact:
@@ -154,12 +154,44 @@ public sealed class CompositeCache
         if (LoadUncut(part, source, file, w, h) is not { } art) return null;
         if (!source.IsStageCut) return art;
 
-        // Stage N: only pixels the shipped art first covers at stages 1..N (0 = the shipped art has no stroke there).
-        if (Labels(source.StageMap!, art.Width, art.Height) is not { } stages) return null;
+        // Stage N: the art faded by the stage map's arrival field (tools/build-assets.py), so a stroke crossing the
+        // stage's edge fades out along its length instead of ending in a hard line.
+        if (Labels(source.StageMap!, art.Width, art.Height) is not { } field) return null;
+        var keep = StageFade(source.Stage);
         var rgba = art.Rgba;   // a fresh buffer: shipped art is decoded per call, custom art copied out of the cache
-        for (int i = 0; i < stages.Length; i++)
-            if (stages[i] == 0 || stages[i] > source.Stage) rgba[i * 4 + 3] = 0;
+        for (int i = 0; i < field.Length; i++)
+            rgba[i * 4 + 3] = (byte)((rgba[i * 4 + 3] * keep[field[i]] + 127) / 255);
         return art;
+    }
+
+    /// Stage map values: stage n's edge is at StageStep * n, NoArt marks pixels where the shipped art has no stroke.
+    /// Must match tools/build-assets.py.
+    private const int StageStep = 80;
+    private const byte NoArt = 255;
+    /// Half the width of the fade across a stage's edge, in field values.
+    private const float StageFeather = 9f;
+
+    private static readonly byte[][] StageFades = new byte[BodyParts.MaxStages + 1][];
+
+    /// How much of a pixel's alpha stage <paramref name="stage"/> keeps (0-255), by its stage map value: a smoothstep
+    /// from all at edge - StageFeather to none at edge + StageFeather, and none where there is no art. The last stage
+    /// (reached only by custom art) keeps all of every pixel with art.
+    private static byte[] StageFade(int stage)
+    {
+        stage = Math.Clamp(stage, 1, BodyParts.MaxStages);
+        if (StageFades[stage] is { } cached) return cached;
+        var table = new byte[256];
+        for (int v = 0; v < NoArt; v++)
+        {
+            if (stage == BodyParts.MaxStages)
+            {
+                table[v] = 255;
+                continue;
+            }
+            var t = Math.Clamp((StageStep * stage + StageFeather - v) / (2 * StageFeather), 0f, 1f);
+            table[v] = (byte)MathF.Round(t * t * (3 - 2 * t) * 255);
+        }
+        return StageFades[stage] = table;
     }
 
     private RgbaImage? LoadUncut(BodyPart part, OverlaySource source, string file, int w, int h)
@@ -219,7 +251,8 @@ public sealed class CompositeCache
     }
 
     /// The label map <paramref name="mapPath"/> at <paramref name="w"/>×<paramref name="h"/> (nearest neighbour:
-    /// labels must not blend): one value per pixel, a BodyPart for region maps, a stage for stage maps.
+    /// labels must not blend): one value per pixel, a BodyPart for region maps, an arrival value for stage maps (smooth,
+    /// so nearest sampling only adds steps far smaller than the stage fade).
     private byte[]? Labels(string mapPath, int w, int h)
     {
         if (regions.TryGetValue((mapPath, w, h), out var hit)) return hit;

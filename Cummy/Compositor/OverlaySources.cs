@@ -24,8 +24,9 @@ public readonly record struct OverlayTarget(BodyPart? Part)
 
 /// Where one part's art comes from for a composite. <see cref="Normal"/> null = the part adds no relief.
 /// <see cref="Stamp"/> identifies the files' content ("shipped" for the plugin's own art), so cached crops and
-/// published outputs follow the art. A staged part's art is limited to the shipped coverage of <see cref="Stage"/>,
-/// read from <see cref="StageMap"/> (tools/build-assets.py); null for single-stage parts.
+/// published outputs follow the art. A staged part's art is faded to the shipped coverage of <see cref="Stage"/> by
+/// the arrival field in <see cref="StageMap"/> (tools/build-assets.py, CompositeCache.LoadArt); null for single-stage
+/// parts.
 public sealed record OverlaySource(OverlayOrigin Origin, string Diffuse, string? Normal, string Stamp,
                                    string? StageMap = null, int Stage = 0)
 {
