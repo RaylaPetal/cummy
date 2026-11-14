@@ -6,7 +6,7 @@ namespace Cummy.Windows;
 internal static class HelpLinks
 {
     private const string PopupId = "cummy_help";
-    private const string IssuesUrl = "https://github.com/RaylaPetal/corruption/issues";
+    private const string IssuesUrl = "https://github.com/RaylaPetal/cummy/issues";
     private const string DiscordHandle = "raylapetal";
 
     /// Title-bar clicks run outside the window's ID stack, so the click only arms this and Draw opens the popup.
@@ -32,7 +32,7 @@ internal static class HelpLinks
         if (ImGui.Button("Report an issue on GitHub"))
             Dalamud.Utility.Util.OpenLink(IssuesUrl);
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("github.com/RaylaPetal/corruption/issues");
+            ImGui.SetTooltip("github.com/RaylaPetal/cummy/issues");
 
         if (ImGui.Button($"Discord: {DiscordHandle}"))
             ImGui.SetClipboardText(DiscordHandle);

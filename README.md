@@ -150,7 +150,7 @@ Debug builds also register `Cummy.DebugLayerSelf` `(string partId) -> string`, w
 
 ## Help and support
 
-- **Bugs and questions:** [open an issue on GitHub](https://github.com/RaylaPetal/corruption/issues), or message `raylapetal` on Discord.
+- **Bugs and questions:** [open an issue on GitHub](https://github.com/RaylaPetal/cummy/issues), or message `raylapetal` on Discord.
 - **Support me:** [Ko-fi](https://ko-fi.com/raylapetal) · [Patreon](https://www.patreon.com/cw/RaylaPetal)
 
 In game, the **?** button in the main window's title bar has the issue and Discord links, and the Ko-fi and Patreon buttons sit at the top right of the window.
