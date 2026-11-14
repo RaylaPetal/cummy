@@ -148,6 +148,13 @@ Debug builds also register `Cummy.DebugLayerSelf` `(string partId) -> string`, w
 - `LayerSelf` accepts `fb` (Full Body). It used to return `unknown-part` for it.
 - Every call returns `wrong-thread` off the framework thread and `error` on an internal failure.
 
+## Help and support
+
+- **Bugs and questions:** [open an issue on GitHub](https://github.com/RaylaPetal/corruption/issues), or message `raylapetal` on Discord.
+- **Support me:** [Ko-fi](https://ko-fi.com/raylapetal) · [Patreon](https://www.patreon.com/cw/RaylaPetal)
+
+In game, the **?** button in the main window's title bar has the issue and Discord links, and the Ko-fi and Patreon buttons sit at the top right of the window.
+
 ## Credits and licence
 
 Cummy is licensed under the **GNU AGPL v3** (see `LICENSE.md`).

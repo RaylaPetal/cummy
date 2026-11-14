@@ -48,10 +48,18 @@ public sealed class MainWindow : ThemedWindow
             Click = _ => openSettings(),
             ShowTooltip = () => ImGui.SetTooltip("Settings"),
         });
+        TitleBarButtons.Add(new TitleBarButton
+        {
+            Icon = FontAwesomeIcon.QuestionCircle,
+            IconOffset = new Vector2(2, 1),
+            Click = _ => HelpLinks.RequestOpen(),
+            ShowTooltip = () => ImGui.SetTooltip("Help & bug reports"),
+        });
     }
 
     protected override void DrawContents()
     {
+        HelpLinks.Draw();
         if (layers.Current is null)
         {
             Ui.Muted("Log in to a character to use Cummy.");
@@ -137,9 +145,12 @@ public sealed class MainWindow : ThemedWindow
             _ when status.StartsWith("Waiting", StringComparison.Ordinal) => (FontAwesomeIcon.Hourglass, Ui.MutedText),
             _ => (FontAwesomeIcon.CheckCircle, ImGuiColors.HealerGreen),
         };
+        // Frame-aligned so the status text lines up with the support buttons on the same line.
+        ImGui.AlignTextToFramePadding();
         Ui.Icon(icon, color);
         ImGui.SameLine();
         ImGui.TextColored(color, status);
+        DrawSupportLinks();
 
         if (compositor.BodyViaProteus == true)
         {
@@ -155,6 +166,18 @@ public sealed class MainWindow : ThemedWindow
                 ImGui.SetTooltip("Proteus is loaded, so it layers your body together with its own overlays. "
                                + "Facial layers still come from Cummy. Change this in Settings > General.");
         }
+    }
+
+    /// Right-aligned on the status line when it fits, else on its own line, so it never overlaps the status.
+    private static void DrawSupportLinks()
+    {
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var right = ImGui.GetContentRegionMax().X;
+        ImGui.SameLine();
+        if (ImGui.GetCursorPosX() + spacing + SupportLinks.Width > right)
+            ImGui.NewLine();
+        ImGui.SetCursorPosX(right - SupportLinks.Width);
+        SupportLinks.Draw();
     }
 
     /// Running creampie drips with the time left, each with Stop while cleaning by hand is allowed.
