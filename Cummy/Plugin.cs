@@ -42,6 +42,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly CreampieService creampies;
     private readonly SimpleHeelsIpc heels;
     private readonly PresencePublisher presence;
+    private readonly SyncOutbox outbox;
     private readonly GlamourerIpc glamourer;
     private readonly DripVfx dripVfx;
     private readonly DripRings dripRings;
@@ -73,10 +74,14 @@ public sealed class Plugin : IDalamudPlugin
         sender = new ChatSender();
         listener = new ChatListener();
         creampies = new CreampieService(Configuration, layers);
-        pairing = new PairingService(Configuration, layers, sender, listener, creampies);
         heels = new SimpleHeelsIpc(PluginInterface);
         Proximity.Heels = heels;
+        outbox = new SyncOutbox(Configuration, layers, heels);
+        pairing = new PairingService(Configuration, layers, sender, listener, creampies, outbox);
         presence = new PresencePublisher(layers, pairing, heels);
+#if DEBUG
+        TagLatencyProbe.Instance = new TagLatencyProbe(heels);
+#endif
         penumbra = new PenumbraIpc(PluginInterface);
         overlaySources = new OverlaySources(Configuration);
         proteus = new Cummy.Proteus.ProteusIpc(PluginInterface);
@@ -93,7 +98,7 @@ public sealed class Plugin : IDalamudPlugin
         api = new CummyApi(Configuration, pairing, layers, relay, pluginOverlays, creampies);
 
         settingsWindow = new SettingsWindow(Configuration, layers, pairing, overlaySources, compositor, moodles, moodleService, drip, api, relay, pluginOverlays, creampies,
-                                          dripRings);
+                                          dripRings, outbox);
         pickerWindow = new LayerPickerWindow(pairing);
         mainWindow = new MainWindow(Configuration, layers, pairing, compositor, drip, pickerWindow, ToggleConfigUi, creampies);
         inviteWindow = new InviteWindow(pairing);
@@ -139,8 +144,13 @@ public sealed class Plugin : IDalamudPlugin
         penumbra.Dispose();
         pairing.Dispose();
         listener.Dispose();
+        outbox.Dispose();
         sender.Dispose();
         presence.Dispose();
+#if DEBUG
+        TagLatencyProbe.Instance?.Dispose();
+        TagLatencyProbe.Instance = null;
+#endif
         heels.Dispose();
         creampies.Dispose();
         layers.Dispose();

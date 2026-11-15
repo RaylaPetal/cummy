@@ -4,7 +4,7 @@ A Dalamud plugin for FINAL FANTASY XIV that brings Second Life INM-style cum lay
 
 - **Pair** with someone nearby: click the droplet button, choose them and click *Pair*. They accept the invite and you're paired; either of you can *Unpair* at any time from `/cummy`.
 - **Layer** or **lick** a partner nearby from the same droplet button: choose them and click a body part. Under the parts, **Creampie** their pussy or ass: it drips for a while (the Emperor's New Ring is put on through Glamourer to carry the drip effect, which needs an IVCS skeleton) and layers their groin or butt. Washing in water or a lick there ends it; block either in settings.
-- **Who's nearby:** the droplet lists your partners, plus other Cummy users near you. Cummy finds them through a small SimpleHeels tag that sync services (Lightless, Mare...) carry, so nobody without Cummy ever gets a message. You need SimpleHeels and to be synced with them; without SimpleHeels only partners are listed. The tag shares your Pairing/Public mode and blocks with players you're synced with.
+- **Who's nearby:** the droplet lists your partners, plus other Cummy users near you. Cummy finds them through a small SimpleHeels tag that sync services (Lightless, Mare...) carry, so nobody without Cummy ever gets a message. You need SimpleHeels and to be synced with them; without SimpleHeels only partners are listed. The tag shares your Pairing/Public mode and blocks with players you're synced with. A second tag carries your layers, licks and creampies to synced Cummy users, so they don't need a tell (see below).
 - **Pairing or Public** (in `/cummy settings`): in Pairing mode, the default, only partners can layer you. In Public mode anyone with Cummy nearby can layer or lick you without pairing, and you can layer anyone nearby. Your blocks and range still apply either way.
 - **Blacklist** someone (hold Ctrl in the droplet dropdown, or type `Name@World` in settings) and they can never layer, lick or invite you until you remove them. Blacklisting a partner unpairs them.
 - Layers are applied **on the wearer's own client**, on top of the skin they are actually wearing, and published through one Cummy mod in Penumbra, listed as `Cummy [Name Surname @ World]` after the logged-in character, so sync plugins show them to everyone. With the Proteus plugin, the same mod carries a "Cummy layers" option group that Proteus composites your body layers from. Older versions' separate "Cummy Layers" mod is removed automatically.
@@ -29,7 +29,10 @@ Bump `<Version>` in `Cummy/Cummy.csproj` (4 parts, e.g. `1.0.1.0`), commit it to
 
 ## How it talks to your partner
 
-Commands travel as short `/tell`s prefixed `cmy1`, sent only when you click something. Incoming ones are hidden from your chat log, and only accepted from characters you have paired with. There is no server.
+Commands are only sent when you click something, and only accepted from characters you have paired with (or anyone, in Public mode). There is no server.
+
+- **Through sync (default):** layers, licks, creampies and lick confirmations to Cummy users you're synced with (Lightless, Mare...) travel in a small SimpleHeels tag, `CummyMx`, which your sync service already carries. No tell is sent, so nothing appears in tell windows or changes your `/r` target. Each event names its target by a short hash of their name rather than in plain text, and is applied once. Turn this off with *Send through sync instead of tells* in `/cummy settings`. Partners who can see your presence tag also pick up your blocks from it instead of a tell.
+- **By tell:** everything else, and anyone not synced or on an older Cummy, gets short `/tell`s prefixed `cmy1`. Incoming ones are hidden from your chat log, though other chat plugins may still show them. Pairing, unpairing and other plugins' messages always go by tell.
 
 ## Building
 
@@ -90,7 +93,7 @@ Part IDs are the wire IDs in `Cummy/BodyPart.cs` (`GetParts` lists them): `mo` F
 
 | IPC | Signature | Purpose |
 | --- | --- | --- |
-| `Cummy.SendLayer` | `(string name, string world, string partId) -> string` | Layers a paired partner with the normal layer tell. In Public mode (v4) it also layers any player in range who isn't paired; their blocks are unknown, so `blocked` only applies to partners. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `blocked`, `queue-full` or `unknown-part`, and sends nothing unless `sent`. Their Cummy still applies its own rules when the tell arrives |
+| `Cummy.SendLayer` | `(string name, string world, string partId) -> string` | Layers a paired partner with the normal layer command (through sync or a tell). In Public mode (v4) it also layers any player in range who isn't paired; their blocks are unknown, so `blocked` only applies to partners. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `blocked`, `queue-full` or `unknown-part`, and sends nothing unless `sent`. Their Cummy still applies its own rules when the tell arrives |
 | `Cummy.LayerSelf` | `(string partId, string sourceName, string sourceWorld) -> string` | v3. Layers the wearer as if that player had, with no pairing and no tell, under the wearer's own blocks and stages. For plugins that decide the layer themselves, such as Corruption on a scene partner's climax. Returns `layered`, `advanced`, `full`, `blocked`, `blacklisted`, `unknown-part` or `no-character` |
 | `Cummy.SendLick` | `(string name, string world, string partId) -> string` | v5. Licks a part off a partner (or a stranger in Public mode) within lick range. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `queue-full` or `unknown-part` (Full Body included). The result arrives as `OnLickResult` |
 | `Cummy.Invite` | `(string name, string world) -> string` | v5. Sends a pairing invite. Returns `sent`, `already-paired`, `pending`, `blacklisted`, `queue-full` or `no-character`. Accepting, unpairing and blacklisting stay with the wearer |
@@ -104,7 +107,7 @@ A creampie makes the wearer's pussy or ass drip for a while (the wearer's settin
 
 | IPC | Signature | Purpose |
 | --- | --- | --- |
-| `Cummy.SendCreampie` | `(string name, string world, string hole) -> string` | v6. Creampies a partner (or, in Public mode, anyone in range) with the normal tell; their Cummy applies its own rules. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `blocked`, `queue-full` or `unknown-hole` |
+| `Cummy.SendCreampie` | `(string name, string world, string hole) -> string` | v6. Creampies a partner (or, in Public mode, anyone in range) with the normal command (through sync or a tell); their Cummy applies its own rules. Returns `sent`, `not-paired`, `blacklisted`, `out-of-range`, `blocked`, `queue-full` or `unknown-hole` |
 | `Cummy.CreampieSelf` | `(string hole, string sourceName, string sourceWorld) -> string` | v6. Creampies the wearer as if that player had, with no pairing, tell or range, under the wearer's blocks and blacklist. Returns `creampied`, `refreshed`, `blocked`, `blacklisted`, `unknown-hole` or `no-character` |
 | `Cummy.GetCreampies` | `() -> Dictionary<string, int>` | v6. Seconds left per dripping hole |
 | `Cummy.OnCreampieChanged` | event `(string hole, bool active, int secondsLeft, string cause, string sourceName, string sourceWorld)` | v6. A drip started or restarted (`creampie`) or ended (`timer`, `wash`, `lick`, `clean`, `plugin`). The accompanying Groin/Butt step shows in `OnPartChanged` with cause `creampie` |

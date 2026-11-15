@@ -40,14 +40,17 @@ public sealed class SettingsWindow : ThemedWindow
     private readonly PluginRelay relay;
     private readonly PluginOverlays pluginOverlays;
     private readonly CreampieService creampies;
+    private readonly SyncOutbox outbox;
     private readonly DripRings dripRings;
 
     public SettingsWindow(Configuration configuration, LayerState layers, PairingService pairing, OverlaySources overlaySources,
                           CompositorService compositor, MoodlesIpc moodles, MoodleService moodleService, DripService drip, CummyApi api,
-                          PluginRelay relay, PluginOverlays pluginOverlays, CreampieService creampies, DripRings dripRings)
+                          PluginRelay relay, PluginOverlays pluginOverlays, CreampieService creampies, DripRings dripRings,
+                          SyncOutbox outbox)
         : base("Cummy Settings###CummySettings")
     {
         this.creampies = creampies;
+        this.outbox = outbox;
         this.dripRings = dripRings;
         this.pluginOverlays = pluginOverlays;
         this.relay = relay;
@@ -160,7 +163,34 @@ public sealed class SettingsWindow : ThemedWindow
         }
 
         ImGuiHelpers.ScaledDummy(4f);
+        DrawDebugProbe();
+        ImGuiHelpers.ScaledDummy(4f);
         DrawDebugApi();
+    }
+
+    /// Sync tag latency: both clients run a debug build, stand near each other, synced, and enable the probe.
+    private void DrawDebugProbe()
+    {
+        if (TagLatencyProbe.Instance is not { } probe) return;
+        Ui.Heading("Sync tag latency");
+        Ui.MutedWrapped("Both clients on a debug build, synced and nearby, probe on. One side presses Send; the other echoes automatically.");
+        var on = probe.Enabled;
+        if (ImGui.Checkbox("Probe on##debugProbe", ref on)) probe.SetEnabled(on);
+        using (ImRaii.Disabled(!probe.Enabled))
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Send##debugProbe")) probe.Send();
+            ImGui.SameLine();
+            if (ImGui.Button("Burst (2 x 300 ms)##debugProbe")) probe.SendBurst();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Clear##debugProbe")) probe.Clear();
+        Ui.Muted($"Round trip: {TagLatencyProbe.Summary(probe.RoundTripMs)}");
+        Ui.Muted($"One-way (clock-dependent): {TagLatencyProbe.Summary(probe.OneWayMs)}");
+        using var child = ImRaii.Child("##debugProbeLog", new Vector2(-1, 120 * ImGuiHelpers.GlobalScale), true);
+        if (child)
+            foreach (var line in probe.Log.AsEnumerable().Reverse())
+                ImGui.TextUnformatted(line);
     }
 
     /// Every Cummy.* endpoint called through the published client (Cummy.Api/CummyIpc.cs), as another plugin would,
@@ -306,7 +336,28 @@ public sealed class SettingsWindow : ThemedWindow
         Ui.Muted(pairing.IsBlacklisted(name, world) ? "They're blacklisted."
                  : pairing.FindPeer(name, world) != null ? "They're a partner."
                  : $"They're unpaired; you're in {(pairing.PublicLayering ? "Public" : "Pairing")} mode.");
+
+        ImGuiHelpers.ScaledDummy(4f);
+        Ui.Heading("Sync outbox");
+        Ui.Muted($"My outbox: {Proximity.Heels?.Read(0, SyncOutbox.Key) ?? "none"}"
+                 + (configuration.SyncTransport ? "" : " (setting off)"));
+        if (ImGui.Button("Self-test##debugOutbox")) debugOutboxResults = outbox.SelfTest();
+        using (ImRaii.Disabled(!parsed))
+        {
+            ImGui.SameLine();
+            if (ImGui.Button("Outbox: layer my chest##debugOutbox"))
+                debugOutboxResults = [$"[{name}@{world}] {outbox.SimulateFrom(name, world, "lay ch")}"];
+            ImGui.SameLine();
+            if (ImGui.Button("Outbox: creampie my pussy##debugOutbox"))
+                debugOutboxResults = [$"[{name}@{world}] {outbox.SimulateFrom(name, world, "crp pu")}"];
+        }
+        if (parsed)
+            Ui.Muted($"Reaches {name}@{world} by outbox: {(outbox.CanReach(name, world) ? "yes" : "no, tell")}");
+        foreach (var line in debugOutboxResults)
+            Ui.Muted(line);
     }
+
+    private System.Collections.Generic.List<string> debugOutboxResults = [];
 
     private int debugMode;
     private string debugStranger = "";
@@ -489,6 +540,18 @@ public sealed class SettingsWindow : ThemedWindow
         }
         ImGuiComponents.HelpMarker("Lets plugins built on Cummy talk to the same plugin on your partners' games, over "
                                  + "Cummy's hidden tells. Only between paired partners, never with anyone you blacklisted.");
+
+        var syncOn = configuration.SyncTransport;
+        if (ImGui.Checkbox("Send through sync instead of tells", ref syncOn))
+        {
+            configuration.SyncTransport = syncOn;
+            configuration.Save();
+            outbox.SettingChanged();
+        }
+        ImGuiComponents.HelpMarker("Layers, licks and creampies to Cummy users you're synced with (Lightless, Mare...) travel "
+                                 + "in a small SimpleHeels tag instead of a hidden tell, so nothing shows up in tell windows. "
+                                 + "Needs SimpleHeels, and a current Cummy on their side; anyone else still gets a tell. "
+                                 + "Pairing, unpairing and other plugins' messages always use tells.");
 
         var show = configuration.ShowPluginOverlays;
         if (ImGui.Checkbox("Show overlays from other plugins", ref show))

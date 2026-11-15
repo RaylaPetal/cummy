@@ -35,6 +35,7 @@ public sealed class PairingService : IDisposable
     private readonly ChatSender sender;
     private readonly ChatListener listener;
     private readonly CreampieService creampies;
+    private readonly SyncOutbox outbox;
 
     /// Invites we sent, by peer key, awaiting their accept.
     private readonly Dictionary<string, (string Nonce, DateTime ExpiresUtc)> outgoing = new(StringComparer.OrdinalIgnoreCase);
@@ -65,17 +66,44 @@ public sealed class PairingService : IDisposable
     public event Action<BodyPart, string, string>? LayerReceived;
 
     public PairingService(Configuration config, LayerState layers, ChatSender sender, ChatListener listener,
-                          CreampieService creampies)
+                          CreampieService creampies, SyncOutbox outbox)
     {
+        this.outbox = outbox;
         this.creampies = creampies;
         this.config = config;
         this.layers = layers;
         this.sender = sender;
         this.listener = listener;
         listener.Received += OnReceived;
+        outbox.Received += OnReceived;
+        Plugin.Framework.Update += OnUpdate;
     }
 
-    public void Dispose() => listener.Received -= OnReceived;
+    public void Dispose()
+    {
+        listener.Received -= OnReceived;
+        outbox.Received -= OnReceived;
+        Plugin.Framework.Update -= OnUpdate;
+    }
+
+    private static readonly TimeSpan TagRefreshInterval = TimeSpan.FromSeconds(1);
+    private DateTime nextTagRefresh = DateTime.MinValue;
+
+    /// Keeps loaded partners' known blocks current from their presence tags, which replace block tells for them.
+    private void OnUpdate(Dalamud.Plugin.Services.IFramework framework)
+    {
+        if (DateTime.UtcNow < nextTagRefresh || Me is not { } me) return;
+        nextTagRefresh = DateTime.UtcNow + TagRefreshInterval;
+        if (Proximity.Heels is not { IsAvailable: true }) return;
+        foreach (var peer in me.Peers.ToList())
+            if (Proximity.TagOf(peer.Name, peer.World) is { } tag)
+                RefreshBlocksFromTag(peer, tag);
+    }
+
+    /// A layer, lick, creampie or lick confirmation: through the sync outbox when it reaches `name@world`, else as a
+    /// tell. False when neither could take it (the tell queue is full).
+    private bool Send(string name, string world, string protocolText)
+        => outbox.TrySend(name, world, protocolText) || sender.SendTell(name, world, protocolText);
 
     private CharacterData? Me => layers.Current;
 
@@ -229,7 +257,7 @@ public sealed class PairingService : IDisposable
 
     public bool SendLayer(PeerRecord peer, BodyPart part)
     {
-        if (!sender.SendTell(peer.Name, peer.World, Protocol.Layer(part)))
+        if (!Send(peer.Name, peer.World, Protocol.Layer(part)))
         {
             Notifier.Error("Slow down - too many layers waiting to send.");
             return false;
@@ -242,7 +270,7 @@ public sealed class PairingService : IDisposable
     /// rules when it arrives.
     public bool SendCreampie(PeerRecord peer, Hole hole)
     {
-        if (!sender.SendTell(peer.Name, peer.World, Protocol.Creampie(hole)))
+        if (!Send(peer.Name, peer.World, Protocol.Creampie(hole)))
         {
             Notifier.Error("Slow down - too many messages waiting to send.");
             return false;
@@ -255,7 +283,7 @@ public sealed class PairingService : IDisposable
     /// (<see cref="OnLickConfirmed"/>); without one within <see cref="LickTimeout"/> there was nothing to lick.
     public bool SendLick(PeerRecord peer, BodyPart part)
     {
-        if (!sender.SendTell(peer.Name, peer.World, Protocol.Lick(part)))
+        if (!Send(peer.Name, peer.World, Protocol.Lick(part)))
         {
             Notifier.Error("Slow down - too many messages waiting to send.");
             return false;
@@ -274,14 +302,25 @@ public sealed class PairingService : IDisposable
         return true;
     }
 
+    /// Whether a peer learns our blocks from our presence tag instead of block tells: they're loaded nearby and
+    /// publish a sync outbox, so they run a version that reads partners' blocks from presence tags.
+    private bool LearnsBlocksFromTag(PeerRecord peer)
+        => Proximity.Heels is { IsAvailable: true } && outbox.Advertises(peer.Name, peer.World);
+
     /// The wearer changed whether <paramref name="changed"/> is blocked: tell every peer, with each block message
     /// whose bits cover that part (`blk` for every version, `blx` for versions with facial parts, `bly` for current).
+    /// Peers that read our presence tag get no tell (<see cref="LearnsBlocksFromTag"/>).
     public void BroadcastBlocks(BodyPart changed)
     {
         if (Me is not { } me) return;
         BlocksChanged?.Invoke();
         foreach (var peer in me.Peers)
         {
+            if (LearnsBlocksFromTag(peer))
+            {
+                Plugin.Log.Debug($"Blocks to {peer.Key}: through the presence tag, no tell.");
+                continue;
+            }
             if ((changed.Bit() & BodyParts.LegacyBodyMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.Block(me.BlockMask));
             if ((changed.Bit() & BodyParts.ExtendedMask) != 0) sender.SendTell(peer.Name, peer.World, Protocol.BlockExtended(me.BlockMask));
             sender.SendTell(peer.Name, peer.World, Protocol.BlockAll(me.BlockMask));
@@ -294,7 +333,24 @@ public sealed class PairingService : IDisposable
         if (Me is not { } me) return;
         BlocksChanged?.Invoke();
         foreach (var peer in me.Peers)
+        {
+            if (LearnsBlocksFromTag(peer))
+            {
+                Plugin.Log.Debug($"Blocks to {peer.Key}: through the presence tag, no tell.");
+                continue;
+            }
             sender.SendTell(peer.Name, peer.World, Protocol.BlockAll(me.BlockMask));
+        }
+    }
+
+    /// A partner's presence tag is visible: its block mask is their latest, so it replaces the wire bits we know.
+    private void RefreshBlocksFromTag(PeerRecord peer, PresenceTag tag)
+    {
+        var known = (peer.BlockMask & ~BodyParts.WireMask) | (tag.BlockMask & BodyParts.WireMask);
+        if (known == peer.BlockMask) return;
+        peer.BlockMask = known;
+        config.Save();
+        AccessChanged?.Invoke();
     }
 
     /// After pairing: the blocks `inv`/`acc` could not carry, for versions that understand them (others ignore them).
@@ -385,7 +441,7 @@ public sealed class PairingService : IDisposable
                     Plugin.Log.Information($"Ignored a lick from {name}@{world}: not within {Proximity.LickRange} yalms.");
                     return;
                 }
-                if (BeLicked(name, world, message.Part) && !sender.SendTell(name, world, Protocol.Licked(message.Part)))
+                if (BeLicked(name, world, message.Part) && !Send(name, world, Protocol.Licked(message.Part)))
                     Plugin.Log.Warning($"Couldn't confirm {name}@{world}'s lick of {message.Part}: send queue full.");
                 break;
 
