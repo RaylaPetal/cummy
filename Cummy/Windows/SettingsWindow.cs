@@ -548,10 +548,10 @@ public sealed class SettingsWindow : ThemedWindow
             configuration.Save();
             outbox.SettingChanged();
         }
-        ImGuiComponents.HelpMarker("Layers, licks and creampies to Cummy users you're synced with (Lightless, Mare...) travel "
-                                 + "in a small SimpleHeels tag instead of a hidden tell, so nothing shows up in tell windows. "
-                                 + "Needs SimpleHeels, and a current Cummy on their side; anyone else still gets a tell. "
-                                 + "Pairing, unpairing and other plugins' messages always use tells.");
+        ImGuiComponents.HelpMarker("Layers, licks, creampies, pairing and unpairing with Cummy users you're synced with "
+                                 + "(Lightless, Mare...) travel in a small SimpleHeels tag instead of a hidden tell, so nothing "
+                                 + "shows up in tell windows. Needs SimpleHeels, and a current Cummy on their side; anyone else "
+                                 + "still gets a tell. Other plugins' messages always use tells.");
 
         var show = configuration.ShowPluginOverlays;
         if (ImGui.Checkbox("Show overlays from other plugins", ref show))

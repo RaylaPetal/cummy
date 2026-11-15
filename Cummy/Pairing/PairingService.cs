@@ -100,7 +100,7 @@ public sealed class PairingService : IDisposable
                 RefreshBlocksFromTag(peer, tag);
     }
 
-    /// A layer, lick, creampie or lick confirmation: through the sync outbox when it reaches `name@world`, else as a
+    /// A layer, lick, creampie, lick confirmation or pairing message: through the sync outbox when it reaches `name@world`, else as a
     /// tell. False when neither could take it (the tell queue is full).
     private bool Send(string name, string world, string protocolText)
         => outbox.TrySend(name, world, protocolText) || sender.SendTell(name, world, protocolText);
@@ -173,7 +173,7 @@ public sealed class PairingService : IDisposable
         if (FindPeer(name, world) is not null) return InviteOutcome.AlreadyPaired;
         if (IsInvitePending(name, world)) return InviteOutcome.Pending;
         var nonce = Protocol.NewNonce();
-        if (!sender.SendTell(name, world, Protocol.Invite(nonce, me.BlockMask))) return InviteOutcome.QueueFull;
+        if (!Send(name, world, Protocol.Invite(nonce, me.BlockMask))) return InviteOutcome.QueueFull;
         outgoing[$"{name}@{world}"] = (nonce, DateTime.UtcNow + InviteLifetime);
         return InviteOutcome.Sent;
     }
@@ -200,7 +200,7 @@ public sealed class PairingService : IDisposable
     {
         incoming.Remove(invite);
         if (Me is not { } me || invite.ExpiresUtc < DateTime.UtcNow) return;
-        if (!sender.SendTell(invite.Name, invite.World, Protocol.Accept(invite.Nonce, me.BlockMask)))
+        if (!Send(invite.Name, invite.World, Protocol.Accept(invite.Nonce, me.BlockMask)))
         {
             Notifier.Error($"Couldn't send the accept to {invite.Name}.");
             return;
@@ -251,7 +251,7 @@ public sealed class PairingService : IDisposable
         config.Save();
         AccessChanged?.Invoke();
         // Best effort: the peer is gone locally even if the tell can't be delivered.
-        sender.SendTell(peer.Name, peer.World, Protocol.Unpair());
+        Send(peer.Name, peer.World, Protocol.Unpair());
         Notifier.Info($"Unpaired from {peer.Key}.");
     }
 
@@ -356,6 +356,8 @@ public sealed class PairingService : IDisposable
     /// After pairing: the blocks `inv`/`acc` could not carry, for versions that understand them (others ignore them).
     private void SendFullBlocks(string name, string world, int blockMask)
     {
+        // A current client reads our blocks from the presence tag (and `inv`/`acc` came through the outbox anyway).
+        if (Proximity.Heels is { IsAvailable: true } && outbox.Advertises(name, world)) return;
         sender.SendTell(name, world, Protocol.BlockExtended(blockMask));
         sender.SendTell(name, world, Protocol.BlockAll(blockMask));
     }

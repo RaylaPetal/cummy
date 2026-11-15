@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>2.7.2.6</Version>
+    <Version>2.7.2.7</Version>
     <!-- Manifest fields (see https://github.com/goatcorp/DalamudPackager/blob/827d88dc/DalamudPackager/DalamudPackager.cs#L420) -->
     <Author>Rayla Petal</Author>
     <Name>Cummy</Name>
@@ -10,6 +10,9 @@
 Requires Penumbra. 18+ content.</Description>
     <Tags>nsfw;penumbra;overlay;bibo</Tags>
     <IconUrl>https://raw.githubusercontent.com/RaylaPetal/cummy/main/Cummy/images/icon.png</IconUrl>
+    <!-- Must equal repo.json's RepoUrl: Dalamud matches the installed plugin to its repo entry by it, and greys out
+         "Receive plugin testing versions" when they differ. -->
+    <RepoUrl>https://github.com/RaylaPetal/cummy</RepoUrl>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 

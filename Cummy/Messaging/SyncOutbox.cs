@@ -11,14 +11,15 @@ using Dalamud.Plugin.Services;
 
 namespace Cummy.Messaging;
 
-/// One event in an outbox: a protocol message (`lay ch`, `lck mo`, `crp pu`, `lkd ch`) addressed to the character whose
+/// One event in an outbox: a protocol message (`lay ch`, `lck mo`, `crp pu`, `lkd ch`, `inv <nonce> <mask>`,
+/// `acc <nonce> <mask>`, `unp`) addressed to the character whose
 /// <see cref="SyncOutbox.Hash"/> is <paramref name="Target"/>, numbered within the sender's session.
 public sealed record OutboxEvent(string Target, int Seq, string Text);
 
 /// A parsed `CummyMx` tag: the sender's session token and its most recent events, oldest first.
 public sealed record OutboxTag(string Token, IReadOnlyList<OutboxEvent> Events);
 
-/// The sync transport: layers, licks, creampies and lick confirmations carried in a SimpleHeels tag (`CummyMx`) that
+/// The sync transport: layers, licks, creampies, lick confirmations and pairing (invite, accept, unpair) carried in a SimpleHeels tag (`CummyMx`) that
 /// sync services (Lightless, Mare) deliver to synced players, instead of a tell. Like
 /// `M1|k3f9q2ab|a1b2c3d4:42:lay ch;a1b2c3d4:43:lay st`: version, session token, then up to <see cref="MaxEvents"/>
 /// events of target hash, sequence number and the `cmy1` verb and argument. Publishing the tag, even empty, tells
@@ -80,8 +81,10 @@ public sealed class SyncOutbox : IDisposable
         return Convert.ToHexString(bytes, 0, HashLength / 2).ToLowerInvariant();
     }
 
-    /// The verbs the outbox carries; everything else stays on tells.
-    public static bool Carries(Verb verb) => verb is Verb.Layer or Verb.Lick or Verb.Creampie or Verb.Licked;
+    /// The verbs the outbox carries: per-click actions and the pairing handshake. Block messages (presence tag) and
+    /// other plugins' messages stay on tells.
+    public static bool Carries(Verb verb)
+        => verb is Verb.Layer or Verb.Lick or Verb.Creampie or Verb.Licked or Verb.Invite or Verb.Accept or Verb.Unpair;
 
     /// The tag value, dropping the oldest events until it fits <see cref="MaxLength"/>.
     public static string Format(string token, IReadOnlyList<OutboxEvent> events)
@@ -310,7 +313,8 @@ public sealed class SyncOutbox : IDisposable
         Check("rejects wrong prefix", Parse($"M2|{tok}|") is null);
         Check("rejects unknown verb", Parse($"{Prefix}|{tok}|{h}:1:zzz ch") is null);
         Check("rejects ext", Parse($"{Prefix}|{tok}|{h}:1:ext abc def") is null);
-        Check("rejects inv", Parse($"{Prefix}|{tok}|{h}:1:inv abcdefgh 0") is null);
+        Check("rejects blocks", Parse($"{Prefix}|{tok}|{h}:1:bly 1") is null);
+        Check("carries pairing", Parse($"{Prefix}|{tok}|{h}:1:inv abcdefgh 0;{h}:2:acc abcdefgh 1f;{h}:3:unp") is { Events.Count: 3 });
         Check("rejects bad seq", Parse($"{Prefix}|{tok}|{h}:x:lay ch") is null && Parse($"{Prefix}|{tok}|{h}:0:lay ch") is null);
         Check("rejects bad hash", Parse($"{Prefix}|{tok}|XYZ:1:lay ch") is null);
         Check("rejects too long", Parse($"{Prefix}|{tok}|" + new string('a', MaxLength)) is null);
