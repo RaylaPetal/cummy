@@ -21,6 +21,9 @@
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.5/Cummy-2.7.2.5.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.5/Cummy-2.7.2.5.zip",
     "Changelog": "- Cum now builds up more naturally: stages 1 and 2 spread along the strokes and fade softly at the edges, instead of showing square patches and hard seams.",
-    "LastUpdate": "1794674045"
+    "LastUpdate": "1794754151",
+    "TestingAssemblyVersion": "2.7.2.6",
+    "TestingDalamudApiLevel": 15,
+    "DownloadLinkTesting": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.6-testing/Cummy-2.7.2.6.zip"
   }
 ]
