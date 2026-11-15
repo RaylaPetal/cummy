@@ -95,6 +95,10 @@ public class Configuration : IPluginConfiguration
     /// Other plugins may message the same plugin on a paired partner's client through Cummy (PluginRelay), both ways.
     public bool RelayPluginMessages { get; set; } = true;
 
+    /// Layers, licks and creampies to synced Cummy users nearby go through a SimpleHeels tag (SyncOutbox) instead of a
+    /// tell, when both sides allow it.
+    public bool SyncTransport { get; set; } = true;
+
     /// Other plugins' overlays (PluginOverlays) are composited on the wearer.
     public bool ShowPluginOverlays { get; set; } = true;
 
