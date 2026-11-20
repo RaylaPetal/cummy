@@ -28,6 +28,9 @@ public sealed class PenumbraIpc : IDisposable
     private readonly GetCurrentModSettings getCurrentModSettings;
     private readonly TrySetModSettings trySetModSettings;
     private readonly DeleteMod deleteMod;
+    private readonly GetCurrentModSettingsWithTemp getCurrentModSettingsWithTemp;
+    private readonly GetAllModSettings getAllModSettings;
+    private readonly GetModPath getModPath;
 
     private readonly EventSubscriber<ModSettingChange, Guid, string, bool> modSettingChangedSub;
     private readonly EventSubscriber<nint, int> gameObjectRedrawnSub;
@@ -45,8 +48,8 @@ public sealed class PenumbraIpc : IDisposable
     public event Action? Ready;
 
     /// A collection's mod settings changed (not our own echo): the skin underneath may be different now.
-    /// Carries the collection id.
-    public event Action<Guid>? ModSettingsChanged;
+    /// Carries what changed, the collection id and the mod's folder (empty for changes to several mods at once).
+    public event Action<ModSettingChange, Guid, string>? ModSettingsChanged;
 
     /// The local player was redrawn by someone else (not our own redraw).
     public event Action? PlayerRedrawn;
@@ -67,13 +70,16 @@ public sealed class PenumbraIpc : IDisposable
         reloadMod = new ReloadMod(pi);
         trySetMod = new TrySetMod(pi);
         trySetModPriority = new TrySetModPriority(pi);
+        getCurrentModSettingsWithTemp = new GetCurrentModSettingsWithTemp(pi);
+        getAllModSettings = new GetAllModSettings(pi);
+        getModPath = new GetModPath(pi);
 
-        modSettingChangedSub = ModSettingChanged.Subscriber(pi, (_, collection, modDir, _) =>
+        modSettingChangedSub = ModSettingChanged.Subscriber(pi, (change, collection, modDir, _) =>
         {
             // Our own mod changes come back as events, and Glamourer re-applies its temporary settings in reaction to
             // them; both land inside the echo window.
             if (IsOwnEcho() || string.Equals(modDir, ManagedModName, StringComparison.OrdinalIgnoreCase)) return;
-            ModSettingsChanged?.Invoke(collection);
+            ModSettingsChanged?.Invoke(change, collection, modDir ?? "");
         });
         gameObjectRedrawnSub = GameObjectRedrawn.Subscriber(pi, (_, index) =>
         {
@@ -243,6 +249,68 @@ public sealed class PenumbraIpc : IDisposable
             return ec == PenumbraApiEc.Success && settings is { Item1: true } s ? s.Item2 : null;
         }
         catch (Exception ex) { Plugin.Log.Error(ex, "GetCurrentModSettings failed"); return null; }
+    }
+
+    /// A mod's effective settings in a collection (inheritance and temporary settings applied):
+    /// enabled, priority and each group's selected options. Null when Penumbra can't say.
+    public (bool Enabled, int Priority, Dictionary<string, List<string>> Options)? GetEffectiveModSettings(Guid collection, string modDirectory)
+    {
+        if (!IsAvailable) return null;
+        try
+        {
+            var (ec, settings) = getCurrentModSettingsWithTemp.Invoke(collection, modDirectory);
+            if (ec != PenumbraApiEc.Success) return null;
+            // No settings at all: the mod is not enabled anywhere in the inheritance chain.
+            if (settings is not { } s) return (false, 0, new Dictionary<string, List<string>>());
+            return (s.Item1, s.Item2, s.Item3);
+        }
+        catch (Exception ex) { Plugin.Log.Error(ex, "GetCurrentModSettingsWithTemp failed"); return null; }
+    }
+
+    /// Every mod's effective settings in a collection (inheritance and temporary settings applied), by mod folder.
+    /// Mods without settings are absent. Null when Penumbra can't say.
+    public Dictionary<string, (bool Enabled, int Priority, Dictionary<string, List<string>> Options)>? GetAllEffectiveModSettings(Guid collection)
+    {
+        if (!IsAvailable) return null;
+        try
+        {
+            var (ec, all) = getAllModSettings.Invoke(collection);
+            if (ec != PenumbraApiEc.Success || all == null) return null;
+            var result = new Dictionary<string, (bool, int, Dictionary<string, List<string>>)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (mod, s) in all)
+                result[mod] = (s.Item1, s.Item2, s.Item3);
+            return result;
+        }
+        catch (Exception ex) { Plugin.Log.Error(ex, "GetAllModSettings failed"); return null; }
+    }
+
+    /// A mod's selected options in one of its groups in a collection, or null when Penumbra can't say.
+    public List<string>? GetSelectedOptions(Guid collection, string modDirectory, string group)
+    {
+        if (!IsAvailable) return null;
+        try
+        {
+            var (ec, settings) = getCurrentModSettings.Invoke(collection, modDirectory);
+            if (ec != PenumbraApiEc.Success) return null;
+            if (settings is not { } s) return [];
+            return s.Item3.TryGetValue(group, out var options) ? options : [];
+        }
+        catch (Exception ex) { Plugin.Log.Error(ex, "GetCurrentModSettings failed"); return null; }
+    }
+
+    /// A mod's folder on disk, or null when Penumbra doesn't know it.
+    public string? GetModFolder(string modDirectory)
+    {
+        if (!IsAvailable) return null;
+        try
+        {
+            var (ec, path, _, _) = getModPath.Invoke(modDirectory);
+            if (ec != PenumbraApiEc.Success || string.IsNullOrEmpty(path)) return null;
+            // GetModPath answers with the mod's path in Penumbra's folder tree; the folder on disk is under the mod root.
+            var root = GetModDirectory();
+            return root == null ? null : System.IO.Path.Combine(root, modDirectory);
+        }
+        catch (Exception ex) { Plugin.Log.Error(ex, "GetModPath failed"); return null; }
     }
 
     /// Deletes a mod folder through Penumbra (its files and every collection's settings for it).

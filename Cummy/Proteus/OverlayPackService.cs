@@ -45,6 +45,8 @@ public sealed class OverlayPackService
     private string? writtenSignature;
     private string? renderingSignature;
     private string? lastSelection;
+    /// False after the mod was reloaded: Penumbra may or may not have kept <see cref="lastSelection"/>.
+    private bool selectionVerified;
     private bool artChanged;
     // The latest request, applied when a background art write finishes.
     private Guid wantedCollection;
@@ -132,12 +134,21 @@ public sealed class OverlayPackService
                                         .Select(OptionName))
                          .ToList();
         var selection = $"{collection}:{string.Join(",", names)}";
-        if (selection != lastSelection)
+        if (selection != lastSelection || !selectionVerified)
         {
-            if (!managedMod.Enable(collection) || !penumbra.SetModOptions(collection, ManagedMod.Folder, GroupName, names))
-                return;
+            // After a reload, write only when Penumbra's selection differs: an unneeded write is a setting change that
+            // makes Proteus recomposite the whole body.
+            var write = selection != lastSelection
+                        || penumbra.GetSelectedOptions(collection, ManagedMod.Folder, GroupName) is not { } current
+                        || !current.ToHashSet(StringComparer.Ordinal).SetEquals(names);
+            if (write)
+            {
+                if (!managedMod.Enable(collection) || !penumbra.SetModOptions(collection, ManagedMod.Folder, GroupName, names))
+                    return;
+                Plugin.Log.Information($"Cummy layers: selected [{string.Join(", ", names)}].");
+            }
             lastSelection = selection;
-            Plugin.Log.Information($"Cummy layers: selected [{string.Join(", ", names)}].");
+            selectionVerified = true;
         }
         if (artChanged)
         {
@@ -157,12 +168,12 @@ public sealed class OverlayPackService
         => managedMod.Ensure()
            && managedMod.SetOptions(Parts.Select(p => p.DisplayName()).Concat(plugins.Select(OptionName)).ToList());
 
-    /// Penumbra re-read the mod (after every composite of the face, or an option change): select again, in case the
-    /// reload reset the selection. Only once the pack is written and nothing is being written: otherwise the write's
+    /// Penumbra re-read the mod (after every composite of the face, or an option change): check the selection again, in
+    /// case the reload reset it. Only once the pack is written and nothing is being written: otherwise the write's
     /// completion selects.
     private void OnReloaded()
     {
-        lastSelection = null;
+        selectionVerified = false;
         if (wantedCollection == Guid.Empty || writtenSignature == null || renderingSignature != null) return;
         Select(wantedCollection, wantedLayers, wantedPlugins);
     }

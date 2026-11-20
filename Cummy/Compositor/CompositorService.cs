@@ -85,7 +85,7 @@ public sealed class CompositorService : IDisposable
     private sealed record Plan(
         Guid Collection, IReadOnlyList<BodyPart> Parts, IReadOnlyDictionary<BodyPart, OverlaySource> Sources,
         IReadOnlyDictionary<BodyPart, LayerLook> Looks, IReadOnlyDictionary<BodyPart, IReadOnlyList<(OverlaySource Source, int Opacity)>> PluginSources,
-        IReadOnlyList<MaterialPlan> Materials, string Signature);
+        IReadOnlyList<MaterialPlan> Materials, string Signature, IReadOnlySet<string> ReadPaths);
 
     /// Waiting for Penumbra to serve (or stop serving) our file for <see cref="GamePath"/>, then redraw.
     private sealed record PendingLive(string GamePath, string? ExpectedFile, DateTime Deadline);
@@ -117,6 +117,17 @@ public sealed class CompositorService : IDisposable
     private Dictionary<string, string> publishedFiles = new(StringComparer.OrdinalIgnoreCase);
     private string? lastUnpublishedPath;
     private string? lastSignature;
+    /// Game paths the published composite reads (materials, face models, textures; lower case): a mod-setting change
+    /// matters only when the changed mod can redirect one of them.
+    private IReadOnlySet<string> lastReadPaths = new HashSet<string>();
+
+    /// Mod-setting changes since the last plan, judged before deciding to probe (design D2).
+    private readonly List<(ModSettingChange Change, string Mod)> pendingChanges = new();
+    /// Each mod's effective settings (temporary ones included) in <see cref="snapshotCollection"/>, as last seen, so a
+    /// change that re-applies the same values is ignored (design D3). Null until first read.
+    private Dictionary<string, string>? settingsSnapshot;
+    private Guid? snapshotCollection;
+    private readonly ModPathIndex modPaths = new();
 
     private bool warnedBibo;
     private bool warnedPenumbra;
@@ -256,12 +267,100 @@ public sealed class CompositorService : IDisposable
 
     private void ScheduleRetry() => dueAt = DateTime.UtcNow + RetryDelay;
 
-    private void OnModSettingsChanged(Guid collection)
+    private void OnModSettingsChanged(ModSettingChange change, Guid collection, string mod)
     {
         // Only the collection we publish into (or, before the first publish, any) can change the wearer's skin.
         if (publishedCollection is { } published && published != collection) return;
-        probeRequested = true;
+        // Judged in Start (design D2): the debounce merges bursts, and the plan's paths live on the framework thread.
+        lock (pendingChanges) pendingChanges.Add((change, mod));
         Schedule();
+    }
+
+    /// Drains the queued mod-setting changes and tells whether any of them can have changed the skin under the
+    /// published composite: its settings really changed (or it was edited) and it can redirect a path the composite
+    /// reads. Anything that can't be judged counts as relevant.
+    private bool TakeRelevantChange(Guid collection)
+    {
+        List<(ModSettingChange Change, string Mod)> changes;
+        lock (pendingChanges)
+        {
+            if (pendingChanges.Count == 0) return false;
+            changes = pendingChanges.ToList();
+            pendingChanges.Clear();
+        }
+        // Nothing published yet: Start plans anyway and the signature covers the rest.
+        if (publishedCollection == null) return false;
+
+        if (snapshotCollection != collection) settingsSnapshot = null;
+        var relevant = false;
+        // One verdict per mod and change type: a burst often repeats the same mod.
+        foreach (var (change, mod) in changes.Distinct())
+            if (IsRelevant(change, mod, collection))
+                relevant = true;   // keep going: every entry updates the snapshot
+        return relevant;
+    }
+
+    private bool IsRelevant(ModSettingChange change, string mod, Guid collection)
+    {
+        if (mod.Length == 0 || change is ModSettingChange.MultiInheritance or ModSettingChange.MultiEnableState)
+        {
+            Note($"Mod settings changed ({change}) for several mods - re-reading the skin underneath.");
+            return true;
+        }
+
+        if (change == ModSettingChange.Edited)
+        {
+            modPaths.Invalidate(mod);   // its files changed, not its settings
+        }
+        else
+        {
+            // Same-value dedupe (B).
+            if (penumbra.GetEffectiveModSettings(collection, mod) is not { } now)
+            {
+                Note($"Can't read {mod}'s settings after a {change} change - re-reading the skin underneath.");
+                return true;
+            }
+            var key = SettingsKey(now.Enabled, now.Priority, now.Options);
+            var known = settingsSnapshot != null;
+            var old = known && settingsSnapshot!.TryGetValue(mod, out var was) ? was : SettingsKey(false, 0, new());
+            if (known && old == key)
+            {
+                Plugin.Log.Debug($"Ignored {change}:{mod} - settings unchanged.");
+                return false;
+            }
+            if (settingsSnapshot != null) settingsSnapshot[mod] = key;
+        }
+
+        // Relevance (A).
+        var paths = penumbra.GetModFolder(mod) is { } folder ? modPaths.Paths(mod, folder) : null;
+        if (paths == null || lastReadPaths.Count == 0)
+        {
+            Note($"{mod} changed ({change}) and its files can't be checked - re-reading the skin underneath.");
+            return true;
+        }
+        if (!paths.Overlaps(lastReadPaths))
+        {
+            Plugin.Log.Debug($"Ignored {change}:{mod} - provides none of {lastReadPaths.Count} composited paths.");
+            return false;
+        }
+        Note($"{mod} changed ({change}) and redirects a file under your layers - re-reading the skin underneath.");
+        return true;
+    }
+
+    private static string SettingsKey(bool enabled, int priority, Dictionary<string, List<string>> options)
+        => $"{enabled}|{priority}|" + string.Join(";", options.OrderBy(g => g.Key, StringComparer.Ordinal)
+                                                              .Select(g => g.Key + "=" + string.Join(",", g.Value.Order(StringComparer.Ordinal))));
+
+    /// Re-reads every mod's effective settings in <paramref name="collection"/> as the baseline for the dedupe.
+    private void RefreshSettingsSnapshot(Guid collection)
+    {
+        var all = penumbra.GetAllEffectiveModSettings(collection);
+        snapshotCollection = collection;
+        settingsSnapshot = all?.ToDictionary(kv => kv.Key, kv => SettingsKey(kv.Value.Enabled, kv.Value.Priority, kv.Value.Options),
+                                             StringComparer.OrdinalIgnoreCase);
+        Plugin.Log.Debug(settingsSnapshot == null
+            ? "Couldn't read the collection's mod settings; every mod-setting change will re-read the skin."
+            : $"Mod settings snapshot: {settingsSnapshot.Count} mod(s).");
     }
 
     private void OnLogout(int type, int code)
@@ -392,6 +491,7 @@ public sealed class CompositorService : IDisposable
 
         if (parts.Count == 0)
         {
+            lock (pendingChanges) pendingChanges.Clear();
             running?.Cancel();
             lastSignature = "empty";
             Status = "Clean";
@@ -404,6 +504,7 @@ public sealed class CompositorService : IDisposable
             return;
         }
 
+        if (TakeRelevantChange(collection)) probeRequested = true;
         if (probeRequested && publishedCollection != null)
         {
             // Empty the mod (no redraw: the loaded textures stay on screen) so the next plan sees the wearer's
@@ -414,7 +515,6 @@ public sealed class CompositorService : IDisposable
             Unpublish();
             dueAt = DateTime.UtcNow + ProbeSettle;
             Status = "Checking your skin...";
-            Note("Mod settings changed - re-reading the skin underneath.");
             return;
         }
         probeRequested = false;
@@ -530,6 +630,7 @@ public sealed class CompositorService : IDisposable
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var plans = new List<MaterialPlan>();
         var signature = new StringBuilder($"v{CompositeVersion}|{KeyOf(parts)}");
+        var readPaths = new HashSet<string>();
 
         foreach (var (materials, groupParts, isFace) in groups)
         foreach (var mtrl in materials)
@@ -547,9 +648,11 @@ public sealed class CompositorService : IDisposable
                     ? $"{modelDisk}|{new FileInfo(modelDisk).Length}|{File.GetLastWriteTimeUtc(modelDisk).Ticks}"
                     : "game";
                 face = new FacePlan(model, modelDisk, modelStamp);
+                readPaths.Add(ModPathIndex.Normalize(model));
                 partsKey += $"|face:{model}|{modelStamp}";
             }
 
+            readPaths.Add(ModPathIndex.Normalize(mtrl));
             var mtrlDisk = penumbra.ResolvePlayer(mtrl);
             var bytes = TexIo.LoadRawFile(data, mtrlDisk, mtrl);
             if (bytes == null) continue;
@@ -564,6 +667,7 @@ public sealed class CompositorService : IDisposable
                     Note($"Skipping shared texture {gamePath} ({kind}).");
                     return null;
                 }
+                readPaths.Add(ModPathIndex.Normalize(gamePath));
                 var up = upstream!.Resolve(gamePath);
                 var stamp = up != null && File.Exists(up)
                     ? $"{up}|{new FileInfo(up).Length}|{File.GetLastWriteTimeUtc(up).Ticks}"
@@ -583,7 +687,7 @@ public sealed class CompositorService : IDisposable
         }
 
         return new Plan(collection, parts, sources, looks,
-                        plugins.ToDictionary(kv => kv.Key, kv => kv.Value), plans, signature.ToString());
+                        plugins.ToDictionary(kv => kv.Key, kv => kv.Value), plans, signature.ToString(), readPaths);
     }
 
     // ── Compositing (background) ─────────────────────────────────────────────
@@ -867,6 +971,9 @@ public sealed class CompositorService : IDisposable
         publishedFiles = files;
         var changed = plan.Signature != lastSignature;
         lastSignature = plan.Signature;
+        lastReadPaths = plan.ReadPaths;
+        Plugin.Log.Debug($"Composite reads {lastReadPaths.Count} game path(s): {string.Join(", ", lastReadPaths)}.");
+        RefreshSettingsSnapshot(plan.Collection);
         Status = $"Showing {plan.Parts.Count} layered part(s)";
         Note($"Published {files.Count} texture(s) for {string.Join(", ", plan.Parts.Select(p => p.DisplayName()))}.");
         Prune();
