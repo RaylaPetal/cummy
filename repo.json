@@ -20,7 +20,7 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.8/Cummy-2.7.2.8.zip",
     "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.8/Cummy-2.7.2.8.zip",
-    "Changelog": "- Layers, licks, creampies, pairing and unpairing with Cummy users you're synced with (Lightless, Mare...) now travel through a small SimpleHeels tag instead of hidden tells, so they no longer show up in tell windows or change your /r target. Anyone on an older Cummy or not synced still gets tells.\n- New setting \"Send through sync instead of tells\" (Settings > Other plugins), on by default.\n- Testing builds can now be opted into from the plugin installer.",
+    "Changelog": "- Fixed Cummy constantly showing \"Checking your skin...\" and \"Compositing...\" every few seconds when using Proteus, even though nothing changed. Cummy now only re-reads your skin when a mod that actually affects the skin under your layers changes, so Proteus no longer rebuilds your body over and over.",
     "LastUpdate": "1794756853"
   }
 ]
