@@ -3,7 +3,7 @@
     "Author": "Rayla Petal",
     "Name": "Cummy",
     "InternalName": "Cummy",
-    "AssemblyVersion": "2.7.2.8",
+    "AssemblyVersion": "2.7.2.9",
     "Description": "Pair with someone over tells, then right-click them to layer cum onto a body part. Layers stack on top of their own current skin (Bibo body), are published through Penumbra so sync plugins show them to everyone, and stay until cleaned or dried off.\nRequires Penumbra. 18+ content.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
@@ -18,9 +18,9 @@
     ],
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.8/Cummy-2.7.2.8.zip",
-    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.8/Cummy-2.7.2.8.zip",
+    "DownloadLinkInstall": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.9/Cummy-2.7.2.9.zip",
+    "DownloadLinkUpdate": "https://github.com/RaylaPetal/cummy/releases/download/v2.7.2.9/Cummy-2.7.2.9.zip",
     "Changelog": "- Fixed Cummy constantly showing \"Checking your skin...\" and \"Compositing...\" every few seconds when using Proteus, even though nothing changed. Cummy now only re-reads your skin when a mod that actually affects the skin under your layers changes, so Proteus no longer rebuilds your body over and over.",
-    "LastUpdate": "1794756853"
+    "LastUpdate": "1795197106"
   }
 ]
